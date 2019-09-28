@@ -131,7 +131,7 @@ In the first usage, `{{label}}` is not vulnerable, since this is an HTML context
 </div>
 ```
 
-The second instance of `{{label}}` though is used as part of an `onclick=` event, which is a JavaScript event triggered when a user clicks on the HTML tag:
+The second instance of `{{label}}` though is used as part of the HTML tag attribute `onclick=`:
 
 ```html
 <li onclick="emitter.emit('setStart', '{{type}}:{{label}}')">
@@ -145,7 +145,7 @@ Note that `{{label}}` is rendered into the following JavaScript code snippet:
 emitter.emit('setStart', '{{type}}:{{label}}')
 ```
 
-Now, it's important to understand that Mustache will HTML encode the `label` variable, and as you may have guessed our goal will be to insert an `'` character to terminate the JavaScript string parameter passed to `event.emitter`, and so if we pass a `label` value of `a'); alert(1);//'` (note we need to ensure our injection results in syntactically correct JavaScript) we'd ideally generate something along the lines of:
+Now, it's important to understand that Mustache will HTML encode the `label` variable, and as you may have guessed our goal will be to insert an `'` character to terminate the JavaScript string parameter passed to `event.emitter`. For example, if we pass a `label` value of `a'); alert(1);//'` (note: we need to ensure our injection results in syntactically correct JavaScript) we'd ideally generate something along the lines of:
 
 ```javascript
 emitter.emit('setStart', 'someType:a'); alert(1);//')
@@ -170,9 +170,9 @@ So when rendered by Mustache we will end up with something along the lines of:
 <li onclick="emitter.emit('setStart', 'a:a&#39;); alert(1);&#x2F;&#x2F;&#39;')">
 ```
 
-So is this still exploitable? Yeap, it actually is, due to [order in which a browser decodes and interpreters values](https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-value-state). Attributes are always decoded before they are interpreted as values, which means the browser will decode `&#39;` back into `'` for us prior to prasing the attribute as JavaScript. By the time the JavaScript interpreter parses the code it will be valid, and we can inject attacker controlled code.
+So is this exploitable? Yeap, it actually is, due to [order in which a browser decodes and interprets values](https://html.spec.whatwg.org/multipage/parsing.html). Attributes are always decoded before they are interpreted as values, which means the browser will decode `&#39;` back into `'` for us prior to prasing the attribute as JavaScript. By the time the JavaScript interpreter parses the code it will be valid, and we can inject attacker controlled code. This is what we mean when we talk about _contextual entity encoding_. You must account for all of the context(s) -oftentimes multiple nested contexts- in which a value will be interpreted. Getting not just the encoding correct, but often the ordering the encodings correct, is a non-trivial problem. But fret not! We can usually avoid this problem altogether, but more on that later.
 
-This is also why sanitizing user input can be a problematic fix for injection issues, it's rare that at the time of accepting user input we know exactly what context(s) the values will be used in later. For example, if we sanitized `label` for XSS by removing HTML control characters such as `<` and `>` we'd still be left with an exploitable XSS vulnerability. If we go further and remove `'`, `"`, `}`, and `)` are we certain there's not a third or even forth context where `label` is used that may be vulnerable? This also touches on why you should always use whitelist sanitization, not a blacklist as a whitelist will better account for unintended side effects. Furthermore, if these characters are valid in a GPO name and we reject GPO names that contain these characters or remove the characters from the name, we'll have a functionality issue in that we cannot properly display the name as intended. This is why proper encoding must be used to meet both our functional and security requirements.
+This also touches on why sanitizing user input can be a problematic fix for injection issues. It's rare that at the time of accepting user input we know exactly what context(s) the values will be used in later. For example, if we sanitized `label` for XSS by removing HTML control characters such as `<` and `>` we'd still be left with an exploitable XSS vulnerability. If we go further and remove `'`, `"`, `}`, and `)` are we certain there's not a third or even forth context where `label` is used that may be vulnerable? This leads us to why you should always use whitelist sanitization, not a blacklist. Whitelist santization routines will better account for unintended contexts and other side effects. Regardless, neither is ideal if these characters are valid in a GPO name and we reject GPO names that contain these characters or remove the characters from the name, we'll have a functionality issue in that we cannot properly display the name as intended. This is why proper contextual encoding must be used to meet both our functional and security requirements.
 
 ### Signal
 
