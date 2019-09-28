@@ -2,7 +2,7 @@
 
 _"In the face of ambiguity, refuse the temptation to guess."_ -The Zen of Python
 
-Electron is often regarded as insecure by design. While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/). Similarly it's possible to write secure Electron applications, though it may not always be easy for a variety of reasons we'll explore.
+Electron is often regarded as insecure by design. While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but sometimes it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though it may not always be easy for a variety of reasons we'll explore.
 
 ## Electron & Kin
 
