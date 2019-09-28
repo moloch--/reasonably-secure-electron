@@ -64,6 +64,8 @@ So next we must determine how `.infoTabContent` is set, jumping to the next usag
 
 Here we see the empty string `infoTabContent` is replaced with a JavaScript object with the key `__html`, this aligns with [React's documentation](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml) of how `dangerouslySetInnerHTML` works and is a good indication we've correctly traced the code and this value is indeed passed to our sink. The `__html` key's value is the `formatted` variable. So from here we must determine what the variable is, and what it contains. Scrolling up a bit we can see that `formatted` is just a string, which is built using string interpolation with variables `${sournceName}` and `${targetName}`:
 
+#### [`HelpModal.jsx`](https://github.com/BloodHoundAD/BloodHound/blob/a7ea5363870d925bc31d3a441a361f38b0aadd0b/src/components/Modals/HelpModal.jsx#L228)
+
 ```javascript
 } else if (edge.label === 'SQLAdmin'){
   formatted = `The user ${sourceName} is a SQL admin on the computer ${targetName}.
@@ -95,7 +97,7 @@ A reasonable scenario here would be blue teams hiding malicous values in their A
 
 #### HTML Encoding
 
-The most comprehensive fix for this vulnerability would be to re-write the functionality such that `dangerouslySetInnerHTML` is not needed, however from a practical perspective a lot of code would need to be refactored. A short term and effective fix is to HTML encode the attacker controlled variables. By HTML encoding these values, we can ensure these strings are never interpreted by the browser as actual HTML, and can support arbitrary characters. The prior payload `aaaaaa<SCRIPT SRC="http://example.com/poc.js">` will simply be displayed as `aaaaaa<SCRIPT SRC="http://example.com/poc.js">`. So is preventing cross-site scripting a simple matter of HTML encoding attacker controlled values? Unfortunately no.
+The most comprehensive fix for this vulnerability would be to re-write the functionality such that `dangerouslySetInnerHTML` is not needed, however from a practical perspective a lot of code would need to be refactored. A short term and effective fix is to HTML encode the attacker controlled variables. By HTML encoding these values, we can ensure these strings are never interpreted by the browser as actual HTML, and can support arbitrary characters. The prior payload: `aaaaaa<SCRIPT SRC="http://example.com/poc.js">` will be encoded as `aaaaaa&lt;SCRIPT SRC="http://example.com/poc.js"&gt;` and will be displayed as `aaaaaa<SCRIPT SRC="http://example.com/poc.js">` but not interpreted as HTML. So is preventing cross-site scripting a simple matter of HTML encoding attacker controlled values? Unfortunately no.
 
 In another area of the application the [Mustache](https://mustache.github.io/) template library is used to render tool tips. The Mustache library HTML encodes by default, another potential fix for the prior vulnerability would be to switch from string interpolation to Mustache templates. However, as we discussed the proper fix is _contextual encoding_, not blanket HTML encoding. HTML encoding will prevent XSS in an HTML context, but when used outside of an HTML context it will fail, or only coincidentally prevent XSS. 
 
@@ -129,7 +131,7 @@ In the first usage, `{{label}}` is not vulnerable, since this is an HTML context
 </div>
 ```
 
-The second instance of `{{label}}` though is used as part of an `onclick=` event, which is a JavaScript event triggered when a user clicks on the HTML tag. Therefore for the contents of `onclick=` will be parsed as JavaScript code:
+The second instance of `{{label}}` though is used as part of an `onclick=` event, which is a JavaScript event triggered when a user clicks on the HTML tag:
 
 ```html
 <li onclick="emitter.emit('setStart', '{{type}}:{{label}}')">
@@ -143,9 +145,34 @@ Note that `{{label}}` is rendered into the following JavaScript code snippet:
 emitter.emit('setStart', '{{type}}:{{label}}')
 ```
 
-While Mustache will HTML encode the `label` variable, we're not rendering this variable in an HTML context since this will be interpreted by the browser as JavaScript. 
+Now, it's important to understand that Mustache will HTML encode the `label` variable, and as you may have guessed our goal will be to insert an `'` character to terminate the JavaScript string parameter passed to `event.emitter`, and so if we pass a `label` value of `a'); alert(1);//'` (note we need to ensure our injection results in syntactically correct JavaScript) we'd ideally generate something along the lines of:
 
-This is also why sanitizing user input can be a problematic fix for injection issues, it's rare that at the time of accepting user input we know exactly what context(s) the values will be used in later. For example, if we sanitized `label` for XSS by removing HTML control characters such as `<` and `>` we'd still be left with an exploitable XSS vulnerability. If we go further and remove `'`, `"`, `}`, and `)` are we certain there's not a third or even forth context where `label` is used that may be vulnerable? This also touches on why you should always use whitelist sanitization, not a blacklist as a whitelist will better account for unintended side effects. Furthermore, if these characters are valid in a GPO name and we reject GPO names that these characters we'll have a functionality issue in that we cannot properly display the name as intended. This is why proper encoding must be used to meet both our functional and security requirements.
+```javascript
+emitter.emit('setStart', 'someType:a'); alert(1);//')
+```
+
+However, the studious reader will know that Mustache actually HTML encodes both `'` and `"`:
+
+```text
+Welcome to Node.js v12.9.1.
+Type ".help" for more information.
+> const mustache = require('mustache');
+undefined
+> mustache.render("{{a}}", {a: "'"});
+'&#39;'
+> mustache.render("{{a}}", {a: '"'});
+'&quot;'
+```
+
+So when rendered by Mustache we will end up with something along the lines of:
+
+```html
+<li onclick="emitter.emit('setStart', 'a:a&#39;); alert(1);&#x2F;&#x2F;&#39;')">
+```
+
+So is this still exploitable? Yeap, it actually is, due to [order in which a browser decodes and interpreters values](https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-value-state). Attributes are always decoded before they are interpreted as values, which means the browser will decode `&#39;` back into `'` for us prior to prasing the attribute as JavaScript. By the time the JavaScript interpreter parses the code it will be valid, and we can inject attacker controlled code.
+
+This is also why sanitizing user input can be a problematic fix for injection issues, it's rare that at the time of accepting user input we know exactly what context(s) the values will be used in later. For example, if we sanitized `label` for XSS by removing HTML control characters such as `<` and `>` we'd still be left with an exploitable XSS vulnerability. If we go further and remove `'`, `"`, `}`, and `)` are we certain there's not a third or even forth context where `label` is used that may be vulnerable? This also touches on why you should always use whitelist sanitization, not a blacklist as a whitelist will better account for unintended side effects. Furthermore, if these characters are valid in a GPO name and we reject GPO names that contain these characters or remove the characters from the name, we'll have a functionality issue in that we cannot properly display the name as intended. This is why proper encoding must be used to meet both our functional and security requirements.
 
 ### Signal
 
