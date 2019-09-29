@@ -1,6 +1,6 @@
 # Reasonably Secure Electron
 
-Author: Joe DeMesy
+Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bishopfox.com)
 
 ### Table of Contents
 
@@ -19,7 +19,6 @@ Author: Joe DeMesy
       - [`Background.html`](#backgroundhtml)
     - [What's in a Name?](#whats-in-a-name)
     - [String Manipulation vs. Lexical Parsing](#string-manipulation-vs-lexical-parsing)
-    - [Future Standards](#future-standards)
   - [Part 2 - Reasonably Secure](#part-2---reasonably-secure)
     - [Engineering for Failure](#engineering-for-failure)
     - [Outline](#outline)
@@ -96,15 +95,10 @@ Here we see the empty string `infoTabContent` is replaced with a JavaScript obje
 
 #### [`HelpModal.jsx`](https://github.com/BloodHoundAD/BloodHound/blob/a7ea5363870d925bc31d3a441a361f38b0aadd0b/src/components/Modals/HelpModal.jsx#L228)
 ```javascript
-} else if (edge.label === 'SQLAdmin'){
+} else if (edge.label === 'SQLAdmin') {
   formatted = `The user ${sourceName} is a SQL admin on the computer ${targetName}.
 
   There is at least one MSSQL instance running on ${targetName} where the user ${sourceName} is the account configured to run the SQL Server instance. The typical configuration for MSSQL is to have the local Windows account or Active Directory domain account that is configured to run the SQL Server service (the primary database engine for SQL Server) have sysadmin privileges in the SQL Server application. As a result, the SQL Server service account can be used to log into the SQL Server instance remotely, read all of the databases (including those protected with transparent encryption), and run operating systems command through SQL Server (as the service account) using a variety of techniques.
-
-  For Windows systems that have been joined to an Active Directory domain, the SQL Server instances and the associated service account can be identified by executing a LDAP query for a list of "MSSQLSvc" Service Principal Names (SPN) as a domain user. In short, when the Database Engine service starts, it attempts to register the SPN, and the SPN is then used to help facilitate Kerberos authentication.
-  
-  Author: Scott Sutherland`;
-}
 ```
 
 Based on my usage and understanding of the tool, and as the help dialog helpfully points out, these values are based on data collected by the ingestor script from Active Directory i.e. from an 'untrusted' source, and therefor "attacker" controlled (note the ironic inversion of 'attacker' in this context). This confirms the exploitability of our canidate point, attacker controlled content is indeed passed to `dangerouslySetInnerHTML`. All an attacker needs to do is plant malicous values, such as a GPO as Fab demonstrated, with the following name:
@@ -172,7 +166,7 @@ Note that `{{label}}` is rendered into the following JavaScript code snippet:
 emitter.emit('setStart', '{{type}}:{{label}}')
 ```
 
-Now, it's important to understand that Mustache will HTML encode the `label` variable, and as you may have guessed our goal will be to insert an `'` character to terminate the JavaScript string parameter passed to `event.emitter`. For example, if we pass a `label` value of `a'); alert(1);//'` (note: we need to ensure our injection results in syntactically correct JavaScript) we'd ideally generate something along the lines of:
+Now, it's important to understand that Mustache will HTML encode the `label` variable, and as you may have guessed our goal will be to insert an `'` character to terminate the JavaScript string parameter passed to `event.emitter`. For example, if we pass a `label` value of `a'); alert(1);//'` (Note: we need to ensure our injection results in syntactically correct JavaScript) we'd ideally generate something along the lines of:
 
 ```javascript
 emitter.emit('setStart', 'someType:a'); alert(1);//')
@@ -187,17 +181,23 @@ Type ".help" for more information.
 undefined
 > mustache.render("{{a}}", {a: "'"});
 '&#39;'
-> mustache.render("{{a}}", {a: '"'});
+> mustache.render("{{b}}", {b: '"'});
 '&quot;'
 ```
 
 So when rendered by Mustache we will end up with something along the lines of:
 
 ```html
-<li onclick="emitter.emit('setStart', 'a:a&#39;); alert(1);&#x2F;&#x2F;&#39;')">
+<li onclick="emitter.emit('setStart', 'someType:a&#39;); alert(1);&#x2F;&#x2F;&#39;')">
 ```
 
-So is this exploitable? Yeap, it actually is, due to [order in which a browser decodes and interprets values](https://html.spec.whatwg.org/multipage/parsing.html). Attributes are always decoded before they are interpreted as values, which means the browser will decode `&#39;` back into `'` for us prior to prasing the attribute as JavaScript. By the time the JavaScript interpreter parses the code it will be valid, and we can inject attacker controlled code. This is what we mean when we talk about _contextual entity encoding_. You must account for all of the context(s) -oftentimes multiple nested contexts- in which a value will be interpreted. Getting not just the encoding correct, but often the ordering the encodings correct, is a non-trivial problem. But fret not! We can usually avoid this problem altogether, but more on that later.
+Given this information, it may stand to reason that the JavaScript code we'll end up with would be:
+
+```javascript
+emitter.emit('setStart', 'someType:a&#39;); alert(1);&#x2F;&#x2F;&#39;')
+```
+
+So is this exploitable? Yeap, it actually is! Due to [order in which a browser decodes and interprets values](https://html.spec.whatwg.org/multipage/parsing.html). Attributes are always decoded before they are interpreted as values, which means the browser will decode `&#39;` back into `'` for us prior to prasing the attribute as JavaScript. By the time the JavaScript interpreter parses the code it will be valid, and we can inject attacker controlled code. This is what we mean when we talk about _contextual entity encoding_. You must account for all of the context(s) -oftentimes multiple nested contexts- in which a value will be interpreted. Getting not just the encoding correct, but often the ordering the encodings correct, is a non-trivial problem. But fret not! We can usually avoid this problem altogether, but more on that later.
 
 This also touches on why sanitizing user input can be a problematic fix for injection issues. It's rare that at the time of accepting user input we know exactly what context(s) the values will be used in later. For example, if we sanitized `label` for XSS by removing HTML control characters such as `<` and `>` we'd still be left with an exploitable XSS vulnerability. If we go further and remove `'`, `"`, `}`, and `)` are we certain there's not a third or even forth context where `label` is used that may be vulnerable? This leads us to why you should always use whitelist sanitization, not a blacklist. Whitelist santization routines will better account for unintended contexts and other side effects. Regardless, neither is ideal if these characters are valid in a GPO name and we reject GPO names that contain these characters or remove the characters from the name, we'll have a functionality issue in that we cannot properly display the name as intended. This is why proper contextual encoding must be used to meet both our functional and security requirements.
 
@@ -245,10 +245,7 @@ In this case what _appears_ to be the primary hurdle the attacker must get over 
 
 So what origin does an Electron application run in, since there's no HTTP server? Well since the application is loaded from the user's file system the origin of an Electron application will default to a file URI, as shown below:
 
-```text
-> window.location.origin
-"file://"
-```
+![File Origin](blog/images/file-origin.gif)
 
 This means that in the context of Signal Desktop's CSP that `'self'` equates to `file://`, and if you've read the details about our [2016 iMessage exploit](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) you'll know that `file://` origins have all sorts of special permissions such as using `XmlHttpRequest` to read files.
 
@@ -286,14 +283,10 @@ So how do we construct a DOM whilst making a clear distinction between the instr
 
 ![Angular Compiler](blog/images/angular-connect-0.png)
 
+
 [Angular compiler talk](https://youtu.be/bEYhD5zHPvo?t=18624)
 
 
-
-
-
-
-### Future Standards
 
 There are also future standards, such as "Trusted Types" proposed by Google to help make a better distinction between data and instructions when performing native browser DOM updates:
 
