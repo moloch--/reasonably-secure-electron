@@ -249,7 +249,7 @@ So what origin does an Electron application run in, since there's no HTTP server
 
 This means that in the context of Signal Desktop's CSP that `'self'` equates to `file://`, and if you've read the details about our [2016 iMessage exploit](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) you'll know that `file://` origins have all sorts of special permissions such as using `XmlHttpRequest` to read files.
 
-[Iván Ariel Barrera Oro](https://twitter.com/HacKanCuBa), [Alfredo Ortega](https://twitter.com/ortegaalfredo), [Juliano Rizzo](https://twitter.com/julianor) very cleverly used this property to bypass Signal's CSP and load remote content. They didn't actually bypass `script-src 'self'` but instead leveraged `child-src 'self'`, which controls where `<iframe>` HTML tags can load content from. This directive is similarly set to `'self'`, which means that `<iframe>` tags must load content from the `file://` origin. Notably, child frames do _not_ inherit the parent frame's CSP policy even if they're loaded from the same origin as the parent, so if an attacker is able to load content into a child frame it is completely uncontrained by the CSP and can execute arbitrary JavaScript as well as access all of the NodeJS APIs since this is Electron after all. The next property abused to load remote content is the use of UNC paths on the Windows operating system, which as you may guess are considered to be part of the `file://` origin. Therefore, the final payload is:
+[Iván Ariel Barrera Oro](https://twitter.com/HacKanCuBa), [Alfredo Ortega](https://twitter.com/ortegaalfredo), [Juliano Rizzo](https://twitter.com/julianor) very cleverly used this property to bypass Signal's CSP and load remote content. They didn't actually bypass `script-src 'self'` but instead leveraged `child-src 'self'`, which controls where `<iframe>` HTML tags can load content from. This directive is similarly set to `'self'`, which means that `<iframe>` tags must load content from the `file://` origin. Notably, child frames do _not_ inherit the parent frame's CSP policy even if they're loaded from the same origin as the parent, so if an attacker is able to load content into a child frame it is completely uncontrained by the CSP and can execute arbitrary JavaScript as well as access all of the NodeJS APIs since this is Electron after all. The next property abused to load remote content is the use of [UNC paths](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-dfsc/149a3039-98ce-491a-9268-2f5ddef08192) on the Windows operating system, which as you may have guessed are considered to be part of the `file://` origin. Therefore, the final payload is:
 
 ```html
 <iframe src=\\DESKTOP-XXXXX\Temp\rce.html>
@@ -278,7 +278,53 @@ So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the 
 
 ### String Manipulation vs. Lexical Parsing
 
-So how do we construct a DOM whilst making a clear distinction between the instructions and data of our application?
+Is there a way to dynamically build a DOM using only safe methods? Yes, but let's go thru a couple of different apporaches. The first approach is the least safe way to dynamically construct a DOM, using simple JavaScript string interpolation or concatnation:
+
+```javascript
+document.body.innerHTML = `<strong>${title}</strong>` + `<a href="${userInput}">click me</a>`;
+```
+
+As we've seen before, `.innerHTML` (just like `dangerouslySetInnerHTML()`) offers no protections what-so-ever. There is no distinction between data and instruction, and the browser will render anything that is handed to it. This method of dynamically adding content to a page should be avoided at all times. A slightly better approch, as we've also seen is to use a template library like Mustache that HTML encodes by defualt:
+
+```javascript
+document.body.innerHTML = mustach.render('<strong>{{title}}</strong><a href="{{userInput}}">click me</a>', {title: 'foo', userInput: 'bar'});
+```
+
+Just as before, this approach is better but subtle mistakes still leave the applciation vulnerable to XSS (the example above is exploitable). Part of the reason for this is that Mustance only parses the `{{`, `}}`, and other directives it knows about. While `{{foo}}` values get encoded, they're blindly HTML encoded, and string substituion is used to construct the final string. Mustache doesn't even care if the source string is valid HTML:
+
+```text
+> mustache.render("<asdf></afwioj>{{a}}&foobar<a><b><c>", {a: 'foobar'});
+'<asdf></afwioj>foobar&foobar<a><b><c>'
+```
+
+Mustache still works via string manipulation, and therefore lacks any understanding of the content it's manipulating. That means it's still up to the programmer to only use `{{foo}}` values in safe locations and contextually switch encodings or nest encodings when needed. We're much safer than the first example of `.innerHTML`, but there's still a lot of onus on the user of the library to get it right. The `.innerHTML` API is insecure by default, and I'd argue almost never safe to use.
+
+An even better apporach is to forego using `.innerHTML` and string manipulation altogether, and instead use `document.createElement`:
+
+```javascript
+let btn = document.createElement("button");
+btn.setAttribute("foo", "'<bar>");
+btn.innerText = "Hello world";
+document.body.appendChild(btn);
+```
+
+This approach is still not perfect, for example assigning an `href` attribute to user controlled content will still result in XSS (e.g. `javascript:alert(1)`) but due the lack of string manipulation when contructing the DOM hierarchy we've eliminated the vast majority of injection points. We also don't have to worry about nested encodings as the browser's `.setAttribute()` will handle that for us. However, it's paramount that do not use string interpolation/concatnation/building _anywhere_. For example, the following use of string interpolation will still be vulnerable:
+
+```javascript
+let btn = document.createElement("button");
+btn.setAttribute("onclick", `foobar(${userInput})`);
+```
+
+The correct approach here would be to dynamically read the value from an inert tag attribute:
+
+```javascript
+let btn = document.createElement("button");
+btn.setAttribute("data", userInput)
+btn.setAttribute("onclick", `foobar(event.srcElement.attributes['data'].value)`);
+```
+
+This approach is obviously far more verbose code-wise, which is why it's so common to just use string manipulation when building the DOM. Is there anyway to get the safety of this approach with the ease of use of the templated approach? Yes, the "Virtual DOM" --or "Incremental DOM" or whatever hip new word people are using.
+
 
 
 ![Angular Compiler](blog/images/angular-connect-0.png)
