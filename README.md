@@ -1,5 +1,7 @@
 # Reasonably Secure Electron
 
+Author: Joe DeMesy
+
 ### Table of Contents
 
 - [Reasonably Secure Electron](#reasonably-secure-electron)
@@ -16,28 +18,33 @@
       - [`Quote.tsx`](#quotetsx)
       - [Background.html](#backgroundhtml)
     - [What's in a Name?](#whats-in-a-name)
-    - [](#)
+    - [String Manipulation vs. Lexical Parsing](#string-manipulation-vs-lexical-parsing)
+    - [Future Standards](#future-standards)
   - [Part 2 - Reasonably Secure](#part-2---reasonably-secure)
+    - [Engineering for Failure](#engineering-for-failure)
+    - [Outline](#outline)
     - [Origin Security](#origin-security)
       - [`app-protocol.ts`](#app-protocolts)
     - [Sandboxed](#sandboxed)
       - [[`main.ts`]()](#maints)
       - [[`preload.js`]()](#preloadjs)
-  - [Source Code](#source-code)
+  - [We're All Doomed](#were-all-doomed)
 
 ## Preface
 
 _"In the face of ambiguity, refuse the temptation to guess."_ -The Zen of Python
 
-[Electron](https://electronjs.org/) is a cross-platform framework for developing desktop applications using "web" technologies like HTML, JavaScript, and CSS. Electron has become very popular in recent years for its ease of use, empowering developers to quickly develope generally good looking, responsive, cross-platform desktop applications. Applications major tech companies like Microsoft Teams, VSCode, Slack, Atom, Spotify, and even secure messaging apps like Signal all use Electron or similar "native web" application frameworks. Electron did not start this trend, embedded webviews have been around for sometime. For example, iMessage is developed using embedded WebKit webviews, which have been [available on MacOS and iOS](https://developer.apple.com/documentation/webkit/wkwebview) for years. Similarly, JavaFX supports embedable WebKit and [Windows has IE objects](https://msdn.microsoft.com/en-us/windows/desktop/aa752084) that can be embedded in 3rd party applications.
+[Electron](https://electronjs.org/) is a cross-platform framework for developing desktop applications using "web" technologies like HTML, JavaScript, and CSS. Electron has become very popular in recent years for its ease of use, empowering developers to quickly develope generally good looking, responsive, cross-platform desktop applications. Applications major tech companies like Microsoft Teams, VSCode, Slack, Atom, Spotify, and even secure messaging apps like Signal all use Electron or similar "native web" application frameworks. Electron did not start this trend, embedded webviews have been around for sometime. For example, iMessage is developed using embedded WebKit webviews, which have been [available on MacOS and iOS](https://developer.apple.com/documentation/webkit/wkwebview) for years. Similarly, [JavaFX](https://docs.oracle.com/javase/8/javafx/embedded-browser-tutorial/overview.htm) supports embedable WebKit and [Windows has IE objects](https://msdn.microsoft.com/en-us/windows/desktop/aa752084) that can be embedded in 3rd party applications.
 
-Electron unlike the others, perhaps because it is viewed as a hipster technology, is often regarded as insecure by design. While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but sometimes it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though it may not always be easy for a variety of reasons we'll explore.
+Electron applications unlike the others often garner a fervent hatred, "Electron wastes resources!" yell the commenters Hacker News. "300Mb or RAM for 'Hello World'" jeers the Java Swing programmer, I only use 100Mb! Then the QT/C++ programmer quips "I only use 40Mb," as the C/ncurses programmer scoffs at the C++ programmer, and X86 assembly demoscene programmer laments the inefficiencies of modern languages. Finally the ARM assembly program remarks upon the wastefulness of X86 CPU microcode. --The truth is of course Electron optimizes developement time, not computational resources. It remaines a viable and pragmatic choice for those who value developement time more than their user's RAM. 
+
+Electron is also often regarded as inherently "insecure." While this reputation is also not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though we may need to keep an eye out for a variety of pitfalls as we'll explore.
 
 ## Part 1 - Out of the Browser Into the Fire
 
 Since Electron applications are built on web application technologies, unsurprisingly they're often vulnerable to the same flaws found in your everyday web applciation. Whereas in the past web applications flaws have generally been confined to the browser's sandbox, no such limitations exist (by default) in Electron. This change has led to a significant increase in the impact a Cross-site Scripting (XSS) bug can have, since the attacker will gain access to the NodeJS APIs. Back in 2016 [Matt Bryant](https://twitter.com/IAmMandatory), [Shubs Shah](https://twitter.com/infosec_au), and I release some research on finding and exploiting these vulnerabilities in Electron and other native web frameworks. We demonstrating remote code execution vulnerabilities in Textual IRC, Azure Storage Explorer, and multiple markdown editors, as well as a flaw that allowed [remote disclosure of all iMessage data](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) on MacOS, and created a cross-platform self-propegating worm in RocketChat in our presentation at [Kiwicon](https://www.kiwicon.org/).
 
-But what is the root cause of XSS and why is it so hard to prevent? There's a common misconception that the proper fix for a Cross-site Scripting is sanitizing user input. The notation that sanitizing user input can concretely fix an XSS issue is untrue, the only proper fix for XSS is _contextual_ output encoding. That said, it's still a good idea to sanitize user input so do that too (and be sure you're sanatize using a whitelist, not a blacklist) --but you need to ensure it's done _in addition to proper output encoding_. A good rule of thumb is: "sanitize input, encode output," but what does "contextual encoding" entail? Let's explore the details of a couple recent exploits to better understand how XSS manifests and how to prevent it.
+But what is the root cause of XSS and why is it so hard to prevent? There's a common misconception that the proper fix for a cross-site scripting is sanitizing user input. The notation that sanitizing user input can concretely fix an XSS issue is __untrue__, the only proper fix for XSS is _contextual output encoding_. That said, it's still a good idea to sanitize user input so do that too (and be sure you're sanatize using a whitelist, not a blacklist) --but you need to ensure it's done _in addition to proper output encoding_. A good rule of thumb is: "sanitize input, encode output," but what does contextual encoding entail? Let's explore the details of a couple recent exploits to better understand how XSS manifests and how to prevent it.
 
 ### Bloodhound AD
 
@@ -268,17 +275,13 @@ $stmt = $conn->prepare("INSERT INTO Users (firstname, lastname, email) VALUES (?
 $stmt->bind_param("sss", $firstname, $lastname, $email);
 ```
 
-In the PHP prepared statemate above, the logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a seperate `bind_param()` function call. This prevents any possibility of the database misinterpreting user controlled data (e.g. `$firstname`) as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database.
+In the PHP prepared statemate above, the logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a seperate `bind_param()` function call. This prevents any possibility of the database misinterpreting user controlled data (e.g. `$firstname`) as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application and a defence-in-depth approach is still warranted --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database.
 
-So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occured, they're seatbelts. Thus our paramount concern is preventing the initial injection, in conjunction with the strongest possible CSP.
+So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occured, they're seatbelts. Our paramount concern is preventing the initial injection, in conjunction with the strongest possible CSP.
 
-### 
+### String Manipulation vs. Lexical Parsing
 
 So how do we construct a DOM whilst making a clear distinction between the instructions and data of our application?
-
-
-> [Trusted Types](https://developers.google.com/web/updates/2019/02/trusted-types) allow you to lock down the dangerous injection sinks - they stop being insecure by default, _and cannot be called with strings_."
-
 
 [Angular compiler talk](https://youtu.be/bEYhD5zHPvo?t=18624)
 
@@ -287,7 +290,22 @@ So how do we construct a DOM whilst making a clear distinction between the instr
 
 
 
+### Future Standards
+
+There are also future standards, such as "Trusted Types" proposed by Google to help make a better distinction between data and instructions when performing native browser DOM updates:
+
+> [Trusted Types](https://developers.google.com/web/updates/2019/02/trusted-types) allow you to lock down the dangerous injection sinks - they stop being insecure by default, _and cannot be called with strings_."
+
+
+
 ## Part 2 - Reasonably Secure
+
+### Engineering for Failure
+
+Everything is hackable and it’s simply a matter of time and resources before someone gets in
+
+
+### Outline
 
 This is my attempt at making a _reasonably_ secure Electron application. High level design is:
 
@@ -388,11 +406,5 @@ ipcRenderer.on('ipc', (_, msg) => {
 ```
 
 
-## Source Code
+## We're All Doomed
 
-Source code is organized as follows:
-
-* `main.ts` - Electron entrypoint.
-* `preload.js` - Electron preload script used to bridge the sandbox code to the Node process.
-* `ipc/` - Node IPC handler code, this translates messages from the `preload.js` script into RPC or local procedure calls that cannot be done from within the sandbox.
-* `src/` - Angular source code (webview code).
