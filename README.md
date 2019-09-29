@@ -283,9 +283,9 @@ So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the 
 
 ### Engineering for Failure
 
-As we've seen in [Part 1](#part-1---out-of-the-browser-into-the-fire), there's no security sliver bullet. HTML encoding can fail, input santization can fail, content security security can fail, prepared statements can fail; nothing is perfect. Just as an aeronautical engineer must design a plane to survive rare but inevitable mechanical failures, so we must too engineer our applications to be robust against failure. We must assume everything is hackable and it’s simply a matter of time and/or resources before someone finds a flaw, and in practice, this is always the case. 
+As we've seen in [Part 1](#part-1---out-of-the-browser-into-the-fire), there's no security sliver bullet. HTML encoding can fail, input santization can fail, content security policy can fail, prepared statements can fail; nothing is perfect. Just as an aeronautical engineer must design a plane to survive rare but inevitable mechanical failures, so we must too engineer our applications to be robust against failure. We must assume everything is hackable and it’s simply a matter of time and/or resources before someone finds a flaw, and in practice, this is always the case. 
 
-Take for example the recent [checkm8 iPhone Boot ROM](https://github.com/axi0mX/ipwndfu) exploit. At the time of writing, the market capitolization of Apple is about $1 Trillion USD, so I think it's safe to assume Apple as a company has the resources to hire some of the most talented security engineers in the industry. Futhermore, Apple has repeatedly commited to protecting user privacy, and due to the large revenue stream that is the AppStore, has a financial interest in protecting the security of the iPhone ecosystem. Yet flaws are found in one of the most security critical components. We as an industry have yet to discover a method for 'absolute security,' there is in existance no _practical example_ of a perfectly secure and moderately complex application (at least that I'm aware of, hell even [djbdns](https://en.wikipedia.org/wiki/Djbdns) had bugs). There are of course examples of "perfect security" in a vacuum, one needs look no further than the [one time pad](https://en.wikipedia.org/wiki/One-time_pad), but these are of course not _practical solutions_ in the real world.
+Take for example the recent [checkm8 iPhone Boot ROM](https://github.com/axi0mX/ipwndfu) exploit. At the time of writing, the market capitolization of Apple is about $1 Trillion USD, so I think it's safe to assume Apple as a company has the resources to hire some of the most talented security engineers in the industry. Futhermore, Apple has repeatedly committed to protecting user privacy and due to the large revenue stream that is the AppStore, has a financial interest in protecting the security of the iPhone ecosystem. Yet flaws are found in one of the most security critical components. We as an industry have yet to discover a method for 'absolute security,' there is in existance no _practical example_ of a perfectly secure, even moderately complex, application (at least that I'm aware of, hell even [djbdns](https://en.wikipedia.org/wiki/Djbdns) had/has bugs). There are of course examples of "perfect security" in a vacuum, one needs look no further than the [one time pad](https://en.wikipedia.org/wiki/One-time_pad), but these are of course not _practical solutions_ in the real world.
 
 Our only recourse is to is to add to the time and resources necessary to complete an attack. To that end, we have one major advantage: we get to stack the deck.
 
@@ -336,14 +336,13 @@ btn.setAttribute("data", userInput)
 btn.setAttribute("onclick", `foobar(event.srcElement.attributes['data'].value)`);
 ```
 
-This approach is obviously far more verbose code-wise, which is why it's so common to just use string manipulation when building the DOM. Is there anyway to get the safety of this approach with the ease of use of the templated approach? Yes, the "Virtual DOM" --or "Incremental DOM" or whatever hip new word people are using; basically [React's JSX](https://reactjs.org/docs/jsx-in-depth.html) and [Angular's "ahead of time" (AOT)](https://angular.io/guide/aot-compiler) templates.
+This approach is obviously far more verbose code-wise, which is why it's so common to just use string manipulation when building the DOM. Is there anyway to get the safety of this approach with the ease of use of the templated approach? Yes, the "Virtual DOM" --or "Incremental DOM" or whatever hip new word people are using. Basically [React's JSX](https://reactjs.org/docs/jsx-in-depth.html) and [Angular's](https://angular.io/guide/aot-compiler) templates.
 
-
-[Angular compiler](https://youtu.be/bEYhD5zHPvo?t=18624)
+As Kara Erikson explains in her recent talk on the [Angular compiler](https://youtu.be/bEYhD5zHPvo?t=18624), Angular templates are _lexically parsed_ and converted into function calls to `document.createElement` and related APIs:
 
 ![Angular Compiler](blog/images/angular-connect-0.png)
 
-
+This is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React based applications. They disconnect the programmer's code from directly interacting with the DOM.
 
 
 There are also future standards, such as "Trusted Types" proposed by Google to help make a better distinction between data and instructions when performing native browser DOM updates:
