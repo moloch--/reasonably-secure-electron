@@ -18,9 +18,9 @@ Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bis
       - [`Quote.tsx`](#quotetsx)
       - [`Background.html`](#backgroundhtml)
     - [What's in a Name?](#whats-in-a-name)
-    - [String Manipulation vs. Lexical Parsing](#string-manipulation-vs-lexical-parsing)
   - [Part 2 - Reasonably Secure](#part-2---reasonably-secure)
     - [Engineering for Failure](#engineering-for-failure)
+    - [String Manipulation vs. Lexical Parsing](#string-manipulation-vs-lexical-parsing)
     - [Outline](#outline)
     - [Origin Security](#origin-security)
       - [`app-protocol.ts`](#app-protocolts)
@@ -38,6 +38,8 @@ _"In the face of ambiguity, refuse the temptation to guess."_ -The Zen of Python
 Electron applications unlike the others often garner a fervent hatred, "Electron wastes resources!" yell the commenters Hacker News. "300Mb or RAM for 'Hello World'" jeers the Java Swing programmer, "I only use 100Mb!" Then the QT/C++ programmer quips "I only use 40Mb," as the C/ncurses programmer scoffs at the C++ programmer, and X86 assembly demoscene programmer laments the inefficiencies of high level languages. Finally the ARM assembly programmer remarks upon the wastefulness of X86 CPU microcode. --The truth is of course Electron optimizes developement time, not computational resources. It remaines a viable and pragmatic choice for those who value developement time more than their user's RAM. 
 
 Electron is also often regarded as inherently "insecure." While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though we may need to keep an eye out for a variety of pitfalls as we'll explore.
+
+In [Part 1](#part-1---out-of-the-browser-into-the-fire) we'll examine how various Electron exploitation techniques work, foucsing primarily on cross-site scripting. In [Part 2](#part-2---reasonably-secure) we'll dive into how to design applications that can defend against these types of attacks, including a functional example  pattern that's _reasonably secure_.
 
 ## Part 1 - Out of the Browser Into the Fire
 
@@ -247,7 +249,7 @@ So what origin does an Electron application run in, since there's no HTTP server
 
 ![File Origin](blog/images/file-origin.gif)
 
-This means that in the context of Signal Desktop's CSP that `'self'` equates to `file://`, and if you've read the details about our [2016 iMessage exploit](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) you'll know that `file://` origins have all sorts of special permissions such as using `XmlHttpRequest` to read files.
+This means that in the context of Signal Desktop's CSP that `'self'` equates to `file://`, and if you've read the details about our [2016 iMessage exploit](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) you'll know that `file://` origins have all sorts of special permissions such as using `XMLHttpRequest` to read files.
 
 [Iván Ariel Barrera Oro](https://twitter.com/HacKanCuBa), [Alfredo Ortega](https://twitter.com/ortegaalfredo), [Juliano Rizzo](https://twitter.com/julianor) very cleverly used this property to bypass Signal's CSP and load remote content. They didn't actually bypass `script-src 'self'` but instead leveraged `child-src 'self'`, which controls where `<iframe>` HTML tags can load content from. This directive is similarly set to `'self'`, which means that `<iframe>` tags must load content from the `file://` origin. Notably, child frames do _not_ inherit the parent frame's CSP policy even if they're loaded from the same origin as the parent, so if an attacker is able to load content into a child frame it is completely uncontrained by the CSP and can execute arbitrary JavaScript as well as access all of the NodeJS APIs since this is Electron after all. The next property abused to load remote content is the use of [UNC paths](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-dfsc/149a3039-98ce-491a-9268-2f5ddef08192) on the Windows operating system, which as you may have guessed are considered to be part of the `file://` origin. Therefore, the final payload is:
 
@@ -274,11 +276,19 @@ $stmt->bind_param("sss", $firstname, $lastname, $email);
 
 In the PHP prepared statemate above, the logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a seperate `bind_param()` function call. This prevents any possibility of the database misinterpreting user controlled data (e.g. `$firstname`) as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application and a defence-in-depth approach is still warranted --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database. This would be like saying an electrical car cannot breakdown since it is unlikely to ever suffer from a mechanical failure; a half truth that does not take into account the bigger picture.
 
-So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occured, they're seatbelts.
+So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occured, they're just seatbelts.
+
+
+## Part 2 - Reasonably Secure
+
+### Engineering for Failure
+
+> Everything is hackable and it’s simply a matter of time and resources before someone gets in
+
 
 ### String Manipulation vs. Lexical Parsing
 
-Is there a way to dynamically build a DOM using only safe methods? Yes, but let's go thru a couple of different apporaches. The first approach is the least safe way to dynamically construct a DOM, using simple JavaScript string interpolation or concatnation:
+So, what is the analog for a SQL prepared statement in the DOM? Is there a way to dynamically build a DOM using only safe methods? Yes! But, let's build upon a naive first approach. The least safe way to dynamically construct a DOM is using JavaScript string interpolation or string concatnation:
 
 ```javascript
 document.body.innerHTML = `<strong>${title}</strong>` + `<a href="${userInput}">click me</a>`;
@@ -323,14 +333,13 @@ btn.setAttribute("data", userInput)
 btn.setAttribute("onclick", `foobar(event.srcElement.attributes['data'].value)`);
 ```
 
-This approach is obviously far more verbose code-wise, which is why it's so common to just use string manipulation when building the DOM. Is there anyway to get the safety of this approach with the ease of use of the templated approach? Yes, the "Virtual DOM" --or "Incremental DOM" or whatever hip new word people are using.
+This approach is obviously far more verbose code-wise, which is why it's so common to just use string manipulation when building the DOM. Is there anyway to get the safety of this approach with the ease of use of the templated approach? Yes, the "Virtual DOM" --or "Incremental DOM" or whatever hip new word people are using; basically [React's JSX](https://reactjs.org/docs/jsx-in-depth.html) and [Angular's "ahead of time" (AOT)](https://angular.io/guide/aot-compiler) templates.
 
 
+[Angular compiler](https://youtu.be/bEYhD5zHPvo?t=18624)
 
 ![Angular Compiler](blog/images/angular-connect-0.png)
 
-
-[Angular compiler talk](https://youtu.be/bEYhD5zHPvo?t=18624)
 
 
 
@@ -339,12 +348,6 @@ There are also future standards, such as "Trusted Types" proposed by Google to h
 > [Trusted Types](https://developers.google.com/web/updates/2019/02/trusted-types) allow you to lock down the dangerous injection sinks - they stop being insecure by default, _and cannot be called with strings_."
 
 
-
-## Part 2 - Reasonably Secure
-
-### Engineering for Failure
-
-Everything is hackable and it’s simply a matter of time and resources before someone gets in
 
 
 ### Outline
