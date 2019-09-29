@@ -1,16 +1,39 @@
 # Reasonably Secure Electron
 
+### Table of Contents
+
+- [Reasonably Secure Electron](#reasonably-secure-electron)
+    - [Table of Contents](#table-of-contents)
+  - [Preface](#preface)
+  - [Part 1 - Out of the Browser Into the Fire](#part-1---out-of-the-browser-into-the-fire)
+    - [Bloodhound AD](#bloodhound-ad)
+      - [`HelpModal.jsx`](#helpmodaljsx)
+      - [`HelpModal.jsx`](#helpmodaljsx-1)
+      - [`HelpModal.jsx`](#helpmodaljsx-2)
+      - [`HelpModal.jsx`](#helpmodaljsx-3)
+      - [`nodeTooltip.html`](#nodetooltiphtml)
+    - [Signal Desktop](#signal-desktop)
+      - [`Quote.tsx`](#quotetsx)
+      - [Background.html](#backgroundhtml)
+    - [What's in a Name?](#whats-in-a-name)
+    - [](#)
+  - [Part 2 - Reasonably Secure](#part-2---reasonably-secure)
+    - [Origin Security](#origin-security)
+      - [`app-protocol.ts`](#app-protocolts)
+    - [Sandboxed](#sandboxed)
+      - [[`main.ts`]()](#maints)
+      - [[`preload.js`]()](#preloadjs)
+  - [Source Code](#source-code)
+
+## Preface
+
 _"In the face of ambiguity, refuse the temptation to guess."_ -The Zen of Python
-
-Electron is often regarded as insecure by design. While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but sometimes it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though it may not always be easy for a variety of reasons we'll explore.
-
-## Electron & Kin
 
 [Electron](https://electronjs.org/) is a cross-platform framework for developing desktop applications using "web" technologies like HTML, JavaScript, and CSS. Electron has become very popular in recent years for its ease of use, empowering developers to quickly develope generally good looking, responsive, cross-platform desktop applications. Applications major tech companies like Microsoft Teams, VSCode, Slack, Atom, Spotify, and even secure messaging apps like Signal all use Electron or similar "native web" application frameworks. Electron did not start this trend, embedded webviews have been around for sometime. For example, iMessage is developed using embedded WebKit webviews, which have been [available on MacOS and iOS](https://developer.apple.com/documentation/webkit/wkwebview) for years. Similarly, JavaFX supports embedable WebKit and [Windows has IE objects](https://msdn.microsoft.com/en-us/windows/desktop/aa752084) that can be embedded in 3rd party applications.
 
-There is however an important design change that occured with newer hipster Chrome-based frameworks like Electron and NodeWebKit; in the older frameworks the programmer generally had to selectively expose functionality or objects to the "web context" -that is the JavaScript execution context inside the webview. However, in Electron and kin the unsandboxed NodeJS APIs are _enabled by default_ and the developer must opt-out regardless if the application even uses such functionality.
+Electron unlike the others, perhaps because it is viewed as a hipster technology, is often regarded as insecure by design. While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but sometimes it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though it may not always be easy for a variety of reasons we'll explore.
 
-## Out of the Browser Into the Fire
+## Part 1 - Out of the Browser Into the Fire
 
 Since Electron applications are built on web application technologies, unsurprisingly they're often vulnerable to the same flaws found in your everyday web applciation. Whereas in the past web applications flaws have generally been confined to the browser's sandbox, no such limitations exist (by default) in Electron. This change has led to a significant increase in the impact a Cross-site Scripting (XSS) bug can have, since the attacker will gain access to the NodeJS APIs. Back in 2016 [Matt Bryant](https://twitter.com/IAmMandatory), [Shubs Shah](https://twitter.com/infosec_au), and I release some research on finding and exploiting these vulnerabilities in Electron and other native web frameworks. We demonstrating remote code execution vulnerabilities in Textual IRC, Azure Storage Explorer, and multiple markdown editors, as well as a flaw that allowed [remote disclosure of all iMessage data](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) on MacOS, and created a cross-platform self-propegating worm in RocketChat in our presentation at [Kiwicon](https://www.kiwicon.org/).
 
@@ -171,7 +194,7 @@ So is this exploitable? Yeap, it actually is, due to [order in which a browser d
 
 This also touches on why sanitizing user input can be a problematic fix for injection issues. It's rare that at the time of accepting user input we know exactly what context(s) the values will be used in later. For example, if we sanitized `label` for XSS by removing HTML control characters such as `<` and `>` we'd still be left with an exploitable XSS vulnerability. If we go further and remove `'`, `"`, `}`, and `)` are we certain there's not a third or even forth context where `label` is used that may be vulnerable? This leads us to why you should always use whitelist sanitization, not a blacklist. Whitelist santization routines will better account for unintended contexts and other side effects. Regardless, neither is ideal if these characters are valid in a GPO name and we reject GPO names that contain these characters or remove the characters from the name, we'll have a functionality issue in that we cannot properly display the name as intended. This is why proper contextual encoding must be used to meet both our functional and security requirements.
 
-### Signal
+### Signal Desktop
 
 In 2018 [Iván Ariel Barrera Oro](https://twitter.com/HacKanCuBa), [Alfredo Ortega](https://twitter.com/ortegaalfredo), [Juliano Rizzo](https://twitter.com/julianor), and [Matt Bryant](https://twitter.com/IAmMandatory) found [multiple remote code execution flaws](https://thehackerblog.com/i-too-like-to-live-dangerously-accidentally-finding-rce-in-signal-desktop-via-html-injection-in-quoted-replies/) in the [Signal](https://signal.org/) desktop application, a secure end-to-end encrypted messaging application.
 
@@ -230,7 +253,7 @@ This means that in the context of Signal Desktop's CSP that `'self'` equates to 
 
 This payload loads an HTML file into an iframe from a UNC path, which does not violate the application's CSP since it's from the `file://` origin. Once loaded the child frame can execute native code in the context of the application since there's no more `script-src` restrictions.
 
-This exploit is an excellent example of the limitations of CSPs, a CSP _cannot_ prevent XSS; it can however complicate/limit the exploitation process, or make an otherwise exploitable bug unexploitable. CSP is a seatbelt, depending upon the severity of a crash it can and very well may save you, but it's not perfect.
+This exploit is an excellent example of the limitations of CSPs, a CSP _cannot_ prevent XSS; it can however complicate/limit the exploitation process, or make an otherwise exploitable bug unexploitable. CSP is a seatbelt, depending upon the severity of a crash it can and very well may save you, but it's not perfect. And it's not the 80's anymore, so wear your fucking seatbelt.
 
 ### What's in a Name?
 
@@ -247,15 +270,24 @@ $stmt->bind_param("sss", $firstname, $lastname, $email);
 
 In the PHP prepared statemate above, the logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a seperate `bind_param()` function call. This prevents any possibility of the database misinterpreting user controlled data (e.g. `$firstname`) as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database.
 
-So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occured, they're seatbelts. Thus our paramount concern is preventing the initial injection in conjunction with a strong CSP.
+So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occured, they're seatbelts. Thus our paramount concern is preventing the initial injection, in conjunction with the strongest possible CSP.
+
+### 
 
 So how do we construct a DOM whilst making a clear distinction between the instructions and data of our application?
 
 
-"[Trusted Types](https://developers.google.com/web/updates/2019/02/trusted-types) allow you to lock down the dangerous injection sinks - they stop being insecure by default, _and cannot be called with strings_."
+> [Trusted Types](https://developers.google.com/web/updates/2019/02/trusted-types) allow you to lock down the dangerous injection sinks - they stop being insecure by default, _and cannot be called with strings_."
 
 
-## Reasonably Secure
+[Angular compiler talk](https://youtu.be/bEYhD5zHPvo?t=18624)
+
+
+
+
+
+
+## Part 2 - Reasonably Secure
 
 This is my attempt at making a _reasonably_ secure Electron application. High level design is:
 
@@ -266,7 +298,7 @@ This is my attempt at making a _reasonably_ secure Electron application. High le
 * __App Origin__: No webviews run with a `file://` origin, nor an `http://` origin, etc. Webviews run in either a `null` origin (plugin scripts) or within an `app://foobar` origin. In combination with CSP, this means the main webview cannot access any `file:` or `http:` resources.
 
 
-## Origin Security
+### Origin Security
 
 We also want to avoid having the application execute within the `file:` origin, as we've discussed `file:` origins can be problematic and expose potential opertunities for attackers to bypass the CSP and load remote code. Futhermore, since `file:` URIs lack proper MIME types Electron will refuse to load ES6 modules from this origin. Therefore, we can both improve security and enable the use of modern ES6 modules at the same type by switching to a custom protocol.
 
@@ -301,7 +333,7 @@ export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next
 }
 ```
 
-## Sandboxed
+### Sandboxed
 
 From personal preference we'll use TypeScript, with a few execeptions where using TypeScript needlessly complicates the build process (e.g. `preload.js`).
 
@@ -356,7 +388,7 @@ ipcRenderer.on('ipc', (_, msg) => {
 ```
 
 
-# Source Code
+## Source Code
 
 Source code is organized as follows:
 
