@@ -16,7 +16,7 @@ Author: Joe DeMesy
       - [`nodeTooltip.html`](#nodetooltiphtml)
     - [Signal Desktop](#signal-desktop)
       - [`Quote.tsx`](#quotetsx)
-      - [Background.html](#backgroundhtml)
+      - [`Background.html`](#backgroundhtml)
     - [What's in a Name?](#whats-in-a-name)
     - [String Manipulation vs. Lexical Parsing](#string-manipulation-vs-lexical-parsing)
     - [Future Standards](#future-standards)
@@ -26,9 +26,9 @@ Author: Joe DeMesy
     - [Origin Security](#origin-security)
       - [`app-protocol.ts`](#app-protocolts)
     - [Sandboxed](#sandboxed)
-      - [[`main.ts`]()](#maints)
-      - [[`preload.js`]()](#preloadjs)
-  - [We're All Doomed](#were-all-doomed)
+      - [`main.ts`](#maints)
+      - [`preload.js`](#preloadjs)
+  - [There's No "Real" Security in the Real World](#theres-no-%22real%22-security-in-the-real-world)
 
 ## Preface
 
@@ -36,9 +36,9 @@ _"In the face of ambiguity, refuse the temptation to guess."_ -The Zen of Python
 
 [Electron](https://electronjs.org/) is a cross-platform framework for developing desktop applications using "web" technologies like HTML, JavaScript, and CSS. Electron has become very popular in recent years for its ease of use, empowering developers to quickly develope generally good looking, responsive, cross-platform desktop applications. Applications major tech companies like Microsoft Teams, VSCode, Slack, Atom, Spotify, and even secure messaging apps like Signal all use Electron or similar "native web" application frameworks. Electron did not start this trend, embedded webviews have been around for sometime. For example, iMessage is developed using embedded WebKit webviews, which have been [available on MacOS and iOS](https://developer.apple.com/documentation/webkit/wkwebview) for years. Similarly, [JavaFX](https://docs.oracle.com/javase/8/javafx/embedded-browser-tutorial/overview.htm) supports embedable WebKit and [Windows has IE objects](https://msdn.microsoft.com/en-us/windows/desktop/aa752084) that can be embedded in 3rd party applications.
 
-Electron applications unlike the others often garner a fervent hatred, "Electron wastes resources!" yell the commenters Hacker News. "300Mb or RAM for 'Hello World'" jeers the Java Swing programmer, "I only use 100Mb!" Then the QT/C++ programmer quips "I only use 40Mb," as the C/ncurses programmer scoffs at the C++ programmer, and X86 assembly demoscene programmer laments the inefficiencies of high level languages. Finally the ARM assembly program remarks upon the wastefulness of X86 CPU microcode. --The truth is of course Electron optimizes developement time, not computational resources. It remaines a viable and pragmatic choice for those who value developement time more than their user's RAM. 
+Electron applications unlike the others often garner a fervent hatred, "Electron wastes resources!" yell the commenters Hacker News. "300Mb or RAM for 'Hello World'" jeers the Java Swing programmer, "I only use 100Mb!" Then the QT/C++ programmer quips "I only use 40Mb," as the C/ncurses programmer scoffs at the C++ programmer, and X86 assembly demoscene programmer laments the inefficiencies of high level languages. Finally the ARM assembly programmer remarks upon the wastefulness of X86 CPU microcode. --The truth is of course Electron optimizes developement time, not computational resources. It remaines a viable and pragmatic choice for those who value developement time more than their user's RAM. 
 
-Electron is also often regarded as inherently "insecure." While this reputation is also not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though we may need to keep an eye out for a variety of pitfalls as we'll explore.
+Electron is also often regarded as inherently "insecure." While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though we may need to keep an eye out for a variety of pitfalls as we'll explore.
 
 ## Part 1 - Out of the Browser Into the Fire
 
@@ -50,7 +50,7 @@ But what is the root cause of XSS and why is it so hard to prevent? There's a co
 
 We'll first look at a couple vulnerabilities I found in the Bloodhound AD tool, one of which was independently discovered by [Fab](https://github.com/BloodHoundAD/BloodHound/issues/267).
 
-Bloodhound is an incredibly powerful tool for analyzing the structure of Windows Active Directory deployments, and finding ways to exploit the various privilege relationships therein. The attacker (or defender) runs a ingestor script the dumps data from Active Directory into JSON, the JSON is the parsed into a Neo4j database and an Electron GUI can be used to query and view the results in a nice graph view. A quick look at the code reveals the application is primarily based on [React](https://reactjs.org/). React generally speaking, and for reasons we'll discuss later, is very good at preventing cross-site scripting attacks, but edge cases do exist. Such an edge case is the use of the `dangerouslySetInnerHTML()` function. This function is similar in functionality to a DOM element's `innerHTML()` function (also dangerous); the function takes in a string and parses it as HTML. 
+Bloodhound is an incredibly powerful tool for analyzing the structure of Windows Active Directory deployments, and finding ways to exploit the various privilege relationships therein. The attacker (or defender) runs a ingestor script the dumps data from Active Directory into JSON, the JSON is the parsed into a Neo4j database and an Electron GUI can be used to query and view the results in a nice graph view. A quick look at the code reveals the application is primarily based on [React](https://reactjs.org/). React generally speaking, and for reasons we'll discuss later, is very good at preventing cross-site scripting attacks, but edge cases do exist. Such an edge case is the use of the `dangerouslySetInnerHTML()` function. This function is similar in functionality to a DOM element's `.innerHTML` (also dangerous); the function takes in a string and parses it as HTML. 
 
 Using canidate point analysis, a quick search of the unpatched [Bloodhound AD](https://github.com/BloodHoundAD/BloodHound/tree/a7ea5363870d925bc31d3a441a361f38b0aadd0b) codebase and we find four instances of this function being used, excerpt below:
 
@@ -226,7 +226,7 @@ export class Quote extends React.Component<Props, {}> {
 
 This meant that message content and quoted messages that contained HTML tags would be rendered by Electron as HTML, the one complication with exploiting this flaw was that Electron had implement a fairly strong [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) (CSP):
 
-#### [Background.html](https://github.com/signalapp/Signal-Desktop/blob/721935b0c82a52d919ab61dff7ddc63d6d6ebe92/background.html#L9)
+#### [`Background.html`](https://github.com/signalapp/Signal-Desktop/blob/721935b0c82a52d919ab61dff7ddc63d6d6ebe92/background.html#L9)
 ```html
 <meta http-equiv="Content-Security-Policy"
   content="default-src 'none';
@@ -275,9 +275,9 @@ $stmt = $conn->prepare("INSERT INTO Users (firstname, lastname, email) VALUES (?
 $stmt->bind_param("sss", $firstname, $lastname, $email);
 ```
 
-In the PHP prepared statemate above, the logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a seperate `bind_param()` function call. This prevents any possibility of the database misinterpreting user controlled data (e.g. `$firstname`) as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application and a defence-in-depth approach is still warranted --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database.
+In the PHP prepared statemate above, the logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a seperate `bind_param()` function call. This prevents any possibility of the database misinterpreting user controlled data (e.g. `$firstname`) as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application and a defence-in-depth approach is still warranted --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database. This would be like saying an electrical car cannot breakdown since it is unlikely to ever suffer from a mechanical failure; a half truth that does not take into account the bigger picture.
 
-So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occured, they're seatbelts. Our paramount concern is preventing the initial injection, in conjunction with the strongest possible CSP.
+So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occured, they're seatbelts.
 
 ### String Manipulation vs. Lexical Parsing
 
@@ -322,7 +322,7 @@ We also want to avoid having the application execute within the `file:` origin, 
 
 This is done in Electron using `RegisterBufferProtocolRequest`, ironically all of the provided examples in the Electron documentation are vulnerable to path traversal, which would allow an attacker to read any file on the filesystem even if `nodeIntegration` is disabled. 
 
-#### `app-protocol.ts`
+#### [`app-protocol.ts`](app-protocol.ts)
 ```typescript
 export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next: ProtocolCallback) {
   const reqUrl = new URL(req.url);
@@ -355,7 +355,7 @@ export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next
 
 From personal preference we'll use TypeScript, with a few execeptions where using TypeScript needlessly complicates the build process (e.g. `preload.js`).
 
-#### [`main.ts`]()
+#### [`main.ts`](main.ts)
 ```typescript
 const mainWindow = new BrowserWindow({
   webPreferences: {
@@ -377,7 +377,7 @@ const mainWindow = new BrowserWindow({
 
 The preload script is just a small snippted of JavaScript:
 
-#### [`preload.js`]()
+#### [`preload.js`](preload.js)
 ```javascript
 const { ipcRenderer } = require('electron');
 
@@ -406,5 +406,6 @@ ipcRenderer.on('ipc', (_, msg) => {
 ```
 
 
-## We're All Doomed
+## There's No "Real" Security in the Real World
+
 
