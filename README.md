@@ -28,7 +28,7 @@ Author: Joe DeMesy
     - [Sandboxed](#sandboxed)
       - [`main.ts`](#maints)
       - [`preload.js`](#preloadjs)
-  - [There's No "Real" Security in the Real World](#theres-no-%22real%22-security-in-the-real-world)
+  - [There's No "Real Security" in the Real World](#theres-no-%22real-security%22-in-the-real-world)
 
 ## Preface
 
@@ -283,6 +283,9 @@ So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the 
 
 So how do we construct a DOM whilst making a clear distinction between the instructions and data of our application?
 
+
+![Angular Compiler](blog/images/angular-connect-0.png)
+
 [Angular compiler talk](https://youtu.be/bEYhD5zHPvo?t=18624)
 
 
@@ -406,6 +409,7 @@ ipcRenderer.on('ipc', (_, msg) => {
 ```
 
 
-## There's No "Real" Security in the Real World
+## There's No "Real Security" in the Real World
+
 
 
