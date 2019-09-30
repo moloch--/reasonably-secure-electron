@@ -18,8 +18,8 @@ Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bis
       - [`Quote.tsx`](#quotetsx)
       - [`Background.html`](#backgroundhtml)
     - [What's in a Name?](#whats-in-a-name)
-  - [Part 2 - Reasonably Secure](#part-2---reasonably-secure)
     - [There's No Real Security in the Real World](#theres-no-real-security-in-the-real-world)
+  - [Part 2 - Reasonably Secure](#part-2---reasonably-secure)
     - [Stacking the Deck](#stacking-the-deck)
     - [Sandcastles in the Sky](#sandcastles-in-the-sky)
       - [`main.ts`](#maints)
@@ -42,7 +42,7 @@ In [Part 1](#part-1---out-of-the-browser-into-the-fire) we'll examine how variou
 
 Since Electron applications are built on web application technologies, unsurprisingly they're often vulnerable to the same flaws found in your everyday web application. Whereas in the past web applications flaws have generally been confined to the browser's sandbox, no such limitations exist (by default) in Electron. This change has led to a significant increase in the impact a Cross-site Scripting (XSS) bug can have, since the attacker will gain access to the NodeJS APIs. Back in 2016 [Matt Bryant](https://twitter.com/IAmMandatory), [Shubs Shah](https://twitter.com/infosec_au), and I release some research on finding and exploiting these vulnerabilities in Electron and other native web frameworks. We demonstrating remote code execution vulnerabilities in Textual IRC, Azure Storage Explorer, and multiple markdown editors, as well as a flaw that allowed [remote disclosure of all iMessage data](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) on MacOS, and created a cross-platform self-propagating worm in RocketChat in our presentation at [Kiwicon](https://www.kiwicon.org/).
 
-But what is the root cause of XSS and why is it so hard to prevent? There's a common misconception that the proper fix for a cross-site scripting is sanitizing user input. The notation that sanitizing user input can concretely fix an XSS issue is __untrue__, the only proper fix for XSS is _contextual output encoding_. That said, it's still a good idea to sanitize user input so do that too (and be sure you're sanitize using a whitelist, not a blacklist) --but you need to ensure it's done _in addition to proper output encoding_. A good rule of thumb is: "sanitize input, encode output," but what does contextual encoding entail? Let's explore the details of a couple recent exploits to better understand how XSS manifests and how to prevent it.
+But what is the root cause of XSS and why is it so hard to prevent? There's a common misconception that the proper fix for a cross-site scripting is sanitizing user input. The notation that sanitizing user input can concretely fix an XSS issue is untrue, the only proper fix for XSS is contextual output encoding. That said, it's still a good idea to sanitize user input so do that too (and be sure you're sanitize using a whitelist, not a blacklist) --but you need to ensure it's done _in addition to proper output encoding_. A good rule of thumb is: "sanitize input, encode output," but what does contextual encoding entail? Let's explore the details of a couple recent exploits to better understand how XSS manifests and how to prevent it.
 
 ### Bloodhound AD
 
@@ -273,12 +273,7 @@ $stmt->bind_param("sss", $firstname, $lastname, $email);
 
 In the PHP prepared statemate above, the logic (i.e. the query) is first passed to the `prepare()` function, then the data (i.e. parameters) are subsequently passed in a separate `bind_param()` function call. This prevents any possibility of the database misinterpreting user controlled data (e.g. `$firstname`) as SQL instructions. However, an application that exclusively makes use of prepared statements is not automatically "secure," though it may be free of this one particular vulnerability, care still must be taken when designing an application and a defence-in-depth approach is still warranted --SQL injection is not the only vulnerability that can result in an attacker stealing data from the database. This would be like saying an electrical car cannot breakdown since it is unlikely to ever suffer from a mechanical failure; a half truth that does not take into account the bigger picture.
 
-So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occurred, they're just seatbelts. Next, we'll explore how to safely and dynamically construct DOM elements. 
-
-
-## Part 2 - Reasonably Secure
-
-In this repository you'll find my functional example of a reasonably secure Electron application pattern. Based on my personal preference, the example application uses Angular and TypeScript. However, everything in this post is also equally applicable to React if that is your preference. I highly recommend selecting one of these two frameworks for reasons discussed below.
+So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the programmer to add metadata to an HTTP response telling the browser how to distinguish _where_ instructions (i.e. `script-src`, etc) can be loaded from. CSP is very much like [Data Execution Prevention](https://en.wikipedia.org/wiki/Executable_space_protection) (buffer overflows are injection vulnerabilities where data on the stack is mistaken for instructions) it only makes distinctions on the _where_. Similar to DEP, CSP can bypassed by loading instructions from areas (i.e. origins) that are already "executable" --if we can find an initial injection point. Just as DEP does not make `strcpy()` safe to use in any context, nor does CSP make safe things like `dangerouslySetInnerHTML()` or `.innerHTML`. CSP and DEP only kick in _after_ the injection has occurred, they're just seatbelts. 
 
 ### There's No Real Security in the Real World
 
@@ -287,6 +282,10 @@ As we've seen in [Part 1](#part-1---out-of-the-browser-into-the-fire), there's n
 Take for example the recent [checkm8 iPhone Boot ROM](https://github.com/axi0mX/ipwndfu) exploit. At the time of writing, the market capitalization of Apple is about $1 Trillion USD, so I think it's safe to assume Apple as a company has the resources to hire some of the most talented security engineers in the industry. Futhermore, Apple has repeatedly committed to protecting user privacy and due to the large revenue stream that is the AppStore, has a financial interest in protecting the security of the iPhone ecosystem. Yet flaws are found in one of the most security critical components. We as an industry have yet to discover a method for 'absolute security,' there is in existence no _practical example_ of a perfectly secure, even moderately complex, application (at least that I'm aware of, hell even [djbdns](https://en.wikipedia.org/wiki/Djbdns) had/has bugs). There are of course examples of "perfect security" in a vacuum, one needs look no further than the [one time pad](https://en.wikipedia.org/wiki/One-time_pad), but these are of course not _practical solutions_ in the real world.
 
 Our only recourse is to is to add to the time and resources necessary to complete an attack. To that end, we have one major advantage: we get to stack the deck.
+
+## Part 2 - Reasonably Secure
+
+In this repository you'll find my functional example of a reasonably secure Electron application pattern. Based on my personal preference, the example application uses Angular and TypeScript. However, everything in this post is also equally applicable to React if that is your preference. I highly recommend selecting one of these two frameworks for reasons discussed below.
 
 ### Stacking the Deck
 
