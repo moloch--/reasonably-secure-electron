@@ -290,7 +290,7 @@ Our only recourse is to is to add to the time and resources necessary to complet
 
 ### Stacking the Deck
 
-So, what is the analog for a SQL prepared statement in the DOM? Is there a way to dynamically build a DOM using only safe methods? Yes! But, let's build upon a naive first approach. The least safe way to dynamically construct a DOM is using JavaScript string interpolation or string concatnation:
+So, what is the analog for a SQL prepared statement in the DOM? Is there a way to dynamically build a DOM using only safe methods? Yes! But, let's build upon a naive first approach. The least safe way to dynamically construct a DOM is using JavaScript string interpolation or string concatenation:
 
 ```javascript
 document.body.innerHTML = `<strong>${title}</strong>` + `<a href="${userInput}">click me</a>`;
