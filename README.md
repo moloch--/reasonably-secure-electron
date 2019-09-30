@@ -353,6 +353,9 @@ This is our first an most important design choice when it comes to building our 
 
 Next we must assume relying upon Angular/React will eventually fail, which is a pretty good bet. While our own code may adhere to the strict guidelines set forth, we have no assurance that the infinite depths of our `node_modules/` directory only contains safe code.
 
+
+The [Electron documentation](https://electronjs.org/docs/api/browser-window#new-browserwindowoptions) for `BrowserWindow` isn't super detailed on what all of these flags do, but let's go thru them one by one. So far as I can tell, these are the flags you want to set to properly restrict your webviews from executing native code. Some of these are the defaults, but I've explicitly set them out of an abundance of caution against future changes to the default settings:
+
 #### [`main.ts`](main.ts#L33)
 ```typescript
 const mainWindow = new BrowserWindow({
@@ -373,6 +376,19 @@ const mainWindow = new BrowserWindow({
 });
 ```
 
+These are largely taken directly from the Electron documentation, but I've editorialized some of it based on my understanding. These are all boolean flags:
+
+* `sandbox` - If set, this will sandbox the renderer associated with the window, making it compatible with the Chromium OS-level sandbox and disabling the Node.js engine. This is not the same as the `nodeIntegration` option and the APIs available to the preload script are more limited.
+* `webSecurity` - This flag disables the same origin policy (SOP), setting this to `false` will cause the kitten nearest to you to die.
+* `contextIsolation` - Whether to run Electron APIs and the specified preload script in a separate JavaScript context. This is disabled by default, but you should always set this to `true` to protect against prototype tampering.
+* `webviewTag` - Whether to enable the `<webview>` tag. These tags are exceedingly dangerous, you should always disable this feature.
+* `enableRemoteModule` - Whether to enable the [remote module](https://electronjs.org/docs/api/remote). This module is dangerous, and should be disabled whenever possible. A far safer approach to IPC is layed out herein.
+* `allowRunningInsecureContent` - Allow an https page to run JavaScript, CSS or plugins from http URLs. Default is `false`, but y'all go ahead and double tap this one.
+* `nodeIntegration` -  Whether handing a loaded gun the DOM. Always this to `false`. 
+* `nodeIntegrationInWorker` - Whether node integration is enabled in web workers. Default is `false`.
+* `nodeIntegrationInSubFrames` - Option for enabling Node.js support in sub-frames such as iframes and child windows, always set this to `false`.
+* `nativeWindowOpen` - Whether to use native `window.open()`, because what could go wrong? Defaults to `false`.
+* `safeDialogs` - Whether to enable browser style consecutive dialog protection. 
 
 
 The preload script is just a small snippted of JavaScript:
