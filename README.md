@@ -19,7 +19,7 @@ Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bis
       - [`Background.html`](#backgroundhtml)
     - [What's in a Name?](#whats-in-a-name)
   - [Part 2 - Reasonably Secure](#part-2---reasonably-secure)
-    - [There's No "Real Security" in the Real World](#theres-no-%22real-security%22-in-the-real-world)
+    - [There's No Real Security in the Real World](#theres-no-real-security-in-the-real-world)
     - [Stacking the Deck](#stacking-the-deck)
     - [Sandcastles in the Sky](#sandcastles-in-the-sky)
       - [`main.ts`](#maints)
@@ -280,7 +280,7 @@ So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the 
 
 In this repository you'll find my functional example of a reasonably secure Electron application pattern. Based on my personal preference, the example application uses Angular and TypeScript. However, everything in this post is also equally applicable to React if that is your preference. I highly recommend selecting one of these two frameworks for reasons discussed below.
 
-### There's No "Real Security" in the Real World
+### There's No Real Security in the Real World
 
 As we've seen in [Part 1](#part-1---out-of-the-browser-into-the-fire), there's no security sliver bullet. HTML encoding can fail, input sanitization can fail, content security policy can fail, prepared statements can fail; nothing is perfect. Just as an aeronautical engineer must design a plane to survive rare but inevitable mechanical failures, so we must too engineer our applications to be robust against failure. We must assume everything is hackable and it’s simply a matter of time and/or resources before someone finds a flaw, and in practice, this is always the case. 
 
@@ -299,7 +299,7 @@ document.body.innerHTML = `<strong>${title}</strong>` + `<a href="${userInput}">
 As we've seen before, `.innerHTML` (just like `dangerouslySetInnerHTML()`) offers no protections what-so-ever. There is no distinction between data and instruction, and the browser will render anything that is handed to it. This method of dynamically adding content to a page should be avoided at all times. A slightly better approach, as we've also seen is to use a template library like Mustache that HTML encodes by default:
 
 ```javascript
-document.body.innerHTML = mustach.render('<strong>{{title}}</strong><a href="{{userInput}}">click me</a>', {title: 'foo', userInput: 'bar'});
+document.body.innerHTML = mustache.render('<strong>{{title}}</strong><a href="{{userInput}}">click me</a>', {title: 'foo', userInput: 'bar'});
 ```
 
 Just as before, this approach is better but subtle mistakes still leave the application vulnerable to XSS (the example above is exploitable). Part of the reason for this is that Mustache only parses the `{{`, `}}`, and other directives it knows about. While `{{foo}}` values get encoded, they're blindly HTML encoded, and string substitution is used to construct the final string. Mustache doesn't even care if the source string is valid HTML:
