@@ -36,7 +36,7 @@ _"In the face of ambiguity, refuse the temptation to guess."_ -The Zen of Python
 
 Electron applications unlike the others often garner a fervent hatred, "Electron wastes resources!" yell the commenters Hacker News. "300Mb or RAM for 'Hello World'" jeers the Java Swing programmer, "I only use 100Mb!" Then the QT/C++ programmer quips "I only use 40Mb," as the C/ncurses programmer scoffs at the C++ programmer, and X86 assembly demoscene programmer laments the inefficiencies of high level languages. Finally the ARM assembly programmer remarks upon the wastefulness of X86 CPU microcode. --The truth is of course Electron optimizes developement time, not computational resources. It remaines a viable and pragmatic choice for those who value developement time more than their user's RAM. 
 
-Electron is also often regarded as inherently "insecure." While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though we may need to keep an eye out for a variety of pitfalls as we'll explore.
+In the same vein, Electron is also often regarded as "inherently insecure." While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuative design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though we may need to keep an eye out for a variety of pitfalls as we'll explore.
 
 In [Part 1](#part-1---out-of-the-browser-into-the-fire) we'll examine how various Electron exploitation techniques work, foucsing primarily on cross-site scripting. In [Part 2](#part-2---reasonably-secure) we'll dive into how to design applications that can defend against these types of attacks, including a functional example  pattern that's _reasonably secure_.
 
@@ -345,13 +345,16 @@ But this has yet to be standardized, so it's more of a footnote on what's to com
 
 ![Angular Compiler](blog/images/angular-connect-0.png)
 
-This leaves no ambiguity for an attacker to construct an injection vulnerability, and is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React based applications Well, at least the ones that don't use React's `dangerouslySetInnerHTML()` and Angular's counterpart [`bypassSecurityTrustHtml()`](https://angular.io/api/platform-browser/DomSanitizer#bypassSecurityTrustHtml).
+This leaves no ambiguity for an attacker to construct an injection vulnerability, and is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React based applications. Well, at least the ones that don't use React's `dangerouslySetInnerHTML()` and Angular's counterpart [`bypassSecurityTrustHtml()`](https://angular.io/api/platform-browser/DomSanitizer#bypassSecurityTrustHtml).
 
 This is our first an most important design choice when it comes to building our reasonably secure Electron application. We will __never__ directly interact with the DOM, and instead defer to Angular to handle that interaction for us. Additionally, we will __never__ call `bypassSecurityTrustHtml()` or any related function. 
 
 ### Sandcastles in the Sky
 
 Next we must assume relying upon Angular/React will eventually fail, which is a pretty good bet. While our own code may adhere to the strict guidelines set forth, we have no assurance that the infinite depths of our `node_modules/` directory only contains safe code.
+
+
+
 
 
 The [Electron documentation](https://electronjs.org/docs/api/browser-window#new-browserwindowoptions) for `BrowserWindow` isn't super detailed on what all of these flags do, but let's go thru them one by one. So far as I can tell, these are the flags you want to set to properly restrict your webviews from executing native code. Some of these are the defaults, but I've explicitly set them out of an abundance of caution against future changes to the default settings:
@@ -379,14 +382,14 @@ const mainWindow = new BrowserWindow({
 These are largely taken directly from the Electron documentation, but I've editorialized some of it based on my understanding. These are all boolean flags:
 
 * `sandbox` - If set, this will sandbox the renderer associated with the window, making it compatible with the Chromium OS-level sandbox and disabling the Node.js engine. This is not the same as the `nodeIntegration` option and the APIs available to the preload script are more limited.
-* `webSecurity` - This flag disables the same origin policy (SOP), setting this to `false` will cause the kitten nearest to you to die.
+* `webSecurity` - This flag disables the same origin policy (SOP), setting this to `false` will kill the kitten nearest to you.
 * `contextIsolation` - Whether to run Electron APIs and the specified preload script in a separate JavaScript context. This is disabled by default, but you should always set this to `true` to protect against prototype tampering.
 * `webviewTag` - Whether to enable the `<webview>` tag. These tags are exceedingly dangerous, you should always disable this feature.
 * `enableRemoteModule` - Whether to enable the [remote module](https://electronjs.org/docs/api/remote). This module is dangerous, and should be disabled whenever possible. A far safer approach to IPC is layed out herein.
 * `allowRunningInsecureContent` - Allow an https page to run JavaScript, CSS or plugins from http URLs. Default is `false`, but y'all go ahead and double tap this one.
 * `nodeIntegration` -  Whether handing a loaded gun the DOM. Always this to `false`. 
 * `nodeIntegrationInWorker` - Whether node integration is enabled in web workers. Default is `false`.
-* `nodeIntegrationInSubFrames` - Option for enabling Node.js support in sub-frames such as iframes and child windows, always set this to `false`.
+* `nodeIntegrationInSubFrames` - Option for enabling Node support in sub-frames such as iframes and child windows, always set this to `false`.
 * `nativeWindowOpen` - Whether to use native `window.open()`, because what could go wrong? Defaults to `false`.
 * `safeDialogs` - Whether to enable browser style consecutive dialog protection. 
 
