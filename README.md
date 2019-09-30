@@ -19,15 +19,14 @@ Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bis
       - [`Background.html`](#backgroundhtml)
     - [What's in a Name?](#whats-in-a-name)
   - [Part 2 - Reasonably Secure](#part-2---reasonably-secure)
-    - [Engineering for Failure](#engineering-for-failure)
-    - [String Manipulation vs. Lexical Parsing](#string-manipulation-vs-lexical-parsing)
-    - [Outline](#outline)
-    - [Origin Security](#origin-security)
-      - [`app-protocol.ts`](#app-protocolts)
-    - [Sandboxed](#sandboxed)
+    - [There's No "Real Security" in the Real World](#theres-no-%22real-security%22-in-the-real-world)
+    - [Stacking the Deck](#stacking-the-deck)
+    - [Sandcastles in the Sky](#sandcastles-in-the-sky)
       - [`main.ts`](#maints)
       - [`preload.js`](#preloadjs)
-  - [There's No "Real Security" in the Real World](#theres-no-%22real-security%22-in-the-real-world)
+    - [Origin Security](#origin-security)
+      - [`app-protocol.ts`](#app-protocolts)
+  - [When in Doubt, Castle](#when-in-doubt-castle)
 
 ## Preface
 
@@ -281,7 +280,9 @@ So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the 
 
 ## Part 2 - Reasonably Secure
 
-### Engineering for Failure
+In this repository you'll find my functional example of a reasonably secure Electron application pattern. Based on my personal preference, the example application uses Angular and TypeScript. However, everything in this post is also equally applicable to React if that is your preference. I highly recommend selecting one of these two frameworks for reasons discussed below.
+
+### There's No "Real Security" in the Real World
 
 As we've seen in [Part 1](#part-1---out-of-the-browser-into-the-fire), there's no security sliver bullet. HTML encoding can fail, input santization can fail, content security policy can fail, prepared statements can fail; nothing is perfect. Just as an aeronautical engineer must design a plane to survive rare but inevitable mechanical failures, so we must too engineer our applications to be robust against failure. We must assume everything is hackable and it’s simply a matter of time and/or resources before someone finds a flaw, and in practice, this is always the case. 
 
@@ -289,7 +290,7 @@ Take for example the recent [checkm8 iPhone Boot ROM](https://github.com/axi0mX/
 
 Our only recourse is to is to add to the time and resources necessary to complete an attack. To that end, we have one major advantage: we get to stack the deck.
 
-### String Manipulation vs. Lexical Parsing
+### Stacking the Deck
 
 So, what is the analog for a SQL prepared statement in the DOM? Is there a way to dynamically build a DOM using only safe methods? Yes! But, let's build upon a naive first approach. The least safe way to dynamically construct a DOM is using JavaScript string interpolation or string concatnation:
 
@@ -336,73 +337,23 @@ btn.setAttribute("data", userInput)
 btn.setAttribute("onclick", `foobar(event.srcElement.attributes['data'].value)`);
 ```
 
-This approach is obviously far more verbose code-wise, which is why it's so common to just use string manipulation when building the DOM. Is there anyway to get the safety of this approach with the ease of use of the templated approach? Yes, the "Virtual DOM" --or "Incremental DOM" or whatever hip new word people are using. Basically [React's JSX](https://reactjs.org/docs/jsx-in-depth.html) and [Angular's](https://angular.io/guide/aot-compiler) templates.
-
-As Kara Erikson explains in her recent talk on the [Angular compiler](https://youtu.be/bEYhD5zHPvo?t=18624), Angular templates are _lexically parsed_ and converted into function calls to `document.createElement` and related APIs:
-
-![Angular Compiler](blog/images/angular-connect-0.png)
-
-This is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React based applications. They disconnect the programmer's code from directly interacting with the DOM.
-
-
-There are also future standards, such as "Trusted Types" proposed by Google to help make a better distinction between data and instructions when performing native browser DOM updates:
+This approach is obviously far more verbose code-wise, which is why it's so common to just use string manipulation when building the DOM. There are also future standards, such as "Trusted Types" proposed by Google to help make a better distinction between data and instructions when performing native browser DOM updates:
 
 > [Trusted Types](https://developers.google.com/web/updates/2019/02/trusted-types) allow you to lock down the dangerous injection sinks - they stop being insecure by default, _and cannot be called with strings_."
 
+But this has yet to be standardized, so it's more of a footnote on what's to come. In the meantime, is there anyway to get the safety of this approach with the ease of use of the templated approach?  Yes, the "Virtual DOM" --or "Incremental DOM" or whatever hip new word people are using. Basically [React's JSX](https://reactjs.org/docs/jsx-in-depth.html) and [Angular's](https://angular.io/guide/aot-compiler) templates. As Kara Erikson explains in her recent talk on the [Angular compiler](https://youtu.be/bEYhD5zHPvo?t=18624), Angular templates are _lexically parsed_ and converted into function calls to `document.createElement` and related APIs:
 
+![Angular Compiler](blog/images/angular-connect-0.png)
 
+This leaves no ambiguity for an attacker to construct an injection vulnerability, and is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React based applications Well, at least the ones that don't use React's `dangerouslySetInnerHTML()` and Angular's counterpart [`bypassSecurityTrustHtml()`](https://angular.io/api/platform-browser/DomSanitizer#bypassSecurityTrustHtml).
 
-### Outline
+This is our first an most important design choice when it comes to building our reasonably secure Electron application. We will __never__ directly interact with the DOM, and instead defer to Angular to handle that interaction for us. Additionally, we will __never__ call `bypassSecurityTrustHtml()` or any related function. 
 
-This is my attempt at making a _reasonably_ secure Electron application. High level design is:
+### Sandcastles in the Sky
 
-* __Sandboxed__ - The main WebView does NOT have `nodeIntegration` enabled; the WebView cannot directly execute native code, access the file system, etc. it has to go thru the IPC interface to perform any actions a browser normally could not. The IPC interface is called via `window.postMessage()` with `contextIsolation` enabled so there are no direct references to Node objects within the sandbox.
-* __No HTTP__ - The sandboxed code does not talk to the server over HTTP. Instead it uses IPC to talk to the native Node process, which then converts the call into RPC (Protobuf over mTLS). There are no locally running HTTP servers and thus no HTTP cross-origin conerns. However, [due to a bug in Electron](https://github.com/electron/electron/issues/19603) it's possible for plugin scripts to control URI parameters. So care must be take to ensure URI parameters cannot cause a state changing event.
-* __CSP__ - Strong CSP by default: `default-src none`, no direct interaction with the DOM, Angular handles all content rendering.
-* __Navigation__: Navigation and redirects are disabled in all windows.
-* __App Origin__: No webviews run with a `file://` origin, nor an `http://` origin, etc. Webviews run in either a `null` origin (plugin scripts) or within an `app://foobar` origin. In combination with CSP, this means the main webview cannot access any `file:` or `http:` resources.
+Next we must assume relying upon Angular/React will eventually fail, which is a pretty good bet. While our own code may adhere to the strict guidelines set forth, we have no assurance that the infinite depths of our `node_modules/` directory only contains safe code.
 
-
-### Origin Security
-
-We also want to avoid having the application execute within the `file:` origin, as we've discussed `file:` origins can be problematic and expose potential opertunities for attackers to bypass the CSP and load remote code. Futhermore, since `file:` URIs lack proper MIME types Electron will refuse to load ES6 modules from this origin. Therefore, we can both improve security and enable the use of modern ES6 modules at the same type by switching to a custom protocol.
-
-This is done in Electron using `RegisterBufferProtocolRequest`, ironically all of the provided examples in the Electron documentation are vulnerable to path traversal, which would allow an attacker to read any file on the filesystem even if `nodeIntegration` is disabled. 
-
-#### [`app-protocol.ts`](app-protocol.ts)
-```typescript
-export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next: ProtocolCallback) {
-  const reqUrl = new URL(req.url);
-  let reqPath = path.normalize(reqUrl.pathname);
-  if (reqPath === '/') {
-    reqPath = '/index.html';
-  }
-  const reqFilename = path.basename(reqPath);
-  fs.readFile(path.join(DIST_PATH, reqPath), (err, data) => {
-    const mimeType = mime(reqFilename);
-    if (!err && mimeType !== null) {
-      next({
-        mimeType: mimeType,
-        charset: charset(mimeType),
-        data: data
-      });
-    } else {
-      console.error(err);
-      next({
-        mimeType: null,
-        charset: null,
-        data: null
-      });
-    }
-  });
-}
-```
-
-### Sandboxed
-
-From personal preference we'll use TypeScript, with a few execeptions where using TypeScript needlessly complicates the build process (e.g. `preload.js`).
-
-#### [`main.ts`](main.ts)
+#### [`main.ts`](main.ts#L33)
 ```typescript
 const mainWindow = new BrowserWindow({
   webPreferences: {
@@ -421,6 +372,8 @@ const mainWindow = new BrowserWindow({
   },
 });
 ```
+
+
 
 The preload script is just a small snippted of JavaScript:
 
@@ -453,7 +406,42 @@ ipcRenderer.on('ipc', (_, msg) => {
 ```
 
 
-## There's No "Real Security" in the Real World
+
+### Origin Security
+
+We also want to avoid having the application execute within the `file://` origin, as we've discussed `file://` origins can be problematic and expose potential opertunities for attackers to bypass the CSP and load remote code. Futhermore, since `file://` URIs lack proper MIME types Electron will [refuse to load ES6 modules](https://github.com/electron/electron/issues/12011) from this origin. Therefore, we can both improve security and enable the use of modern ES6 modules at the same type by switching to a custom protocol. This is done in Electron using `RegisterBufferProtocolRequest`, ironically all of the provided [examples in the Electron documentation are vulnerable to path traversal](https://electronjs.org/docs/api/protocol), which would allow an attacker to read any file on the filesystem even if `nodeIntegration` is disabled. 
+
+#### [`app-protocol.ts`](app-protocol.ts)
+```typescript
+export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next: ProtocolCallback) {
+  const reqUrl = new URL(req.url);
+  let reqPath = path.normalize(reqUrl.pathname);
+  if (reqPath === '/') {
+    reqPath = '/index.html';
+  }
+  const reqFilename = path.basename(reqPath);
+  fs.readFile(path.join(DIST_PATH, reqPath), (err, data) => {
+    const mimeType = mime(reqFilename);
+    if (!err && mimeType !== null) {
+      next({
+        mimeType: mimeType,
+        charset: charset(mimeType),
+        data: data
+      });
+    } else {
+      console.error(err);
+      next({
+        mimeType: null,
+        charset: null,
+        data: null
+      });
+    }
+  });
+}
+```
+
+
+## When in Doubt, Castle
 
 
 
