@@ -342,17 +342,19 @@ But this has yet to be standardized, so it's more of a footnote on what's to com
 
 ![Angular Compiler](blog/images/angular-connect-0.png)
 
-This leaves no ambiguity for an attacker to construct an injection vulnerability, and is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React based applications. Well, at least the ones that don't use React's `dangerouslySetInnerHTML()` and Angular's counterpart [`bypassSecurityTrustHtml()`](https://angular.io/api/platform-browser/DomSanitizer#bypassSecurityTrustHtml).
+This leaves no ambiguity for an attacker to construct an injection vulnerability, and is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React based applications. Since the templates are lexically parsed, the framework knows the exact context in which a given value will be used, and can implement the correct encoding and/or sanitization routines (`property('name', ctx.name)` in the example above). Well, at least the ones that don't use React's `dangerouslySetInnerHTML()` and Angular's counterpart [`bypassSecurityTrustHtml()`](https://angular.io/api/platform-browser/DomSanitizer#bypassSecurityTrustHtml).
 
-This is our first an most important design choice when it comes to building our reasonably secure Electron application. We will __never__ directly interact with the DOM, and instead defer to Angular to handle that interaction for us. Additionally, we will __never__ call `bypassSecurityTrustHtml()` or any related function. 
+This is our first an most important design choice when it comes to building our reasonably secure Electron application. We will __never__ directly interact with the DOM, and instead defer to Angular to handle that interaction for us. Additionally, we will __never__ call `bypassSecurityTrustHtml()` or any related function. By avoiding any direct interaction with the DOM, we make an attacker's job incredibly hard.
 
 ### Sandcastles in the Sky
 
-Next we must assume relying upon Angular/React will eventually fail, which is a pretty good bet. While our own code may adhere to the strict guidelines set forth, we have no assurance that the infinite depths of our `node_modules/` directory only contains safe code.
+Next we must assume relying upon Angular/React will eventually fail, which is a pretty good bet. While our own code may adhere to the strict guidelines set forth, we have no assurance that the infinite depths of our `node_modules/` directory contains only safe code.
 
+Since a cross-site scripting vulnerability will result in the attacker's code executing in the same context as our own code, i.e. in the context of the DOM, we must impose limitations our own code. Electron can actually facilitate this, by default Electron applications have two or more processes: the 'main process' and one or more 'renderer' processes. The main process is a simple Node process like any other, using the Electron APIs this process creates the `BrowserWindow`s (the renderer processes), these processes communicate using inter-process communication (IPC):
 
-
-
+```
+[Main Process (Node)] <--IPC--> [Renderer Process (DOM)]
+```
 
 The [Electron documentation](https://electronjs.org/docs/api/browser-window#new-browserwindowoptions) for `BrowserWindow` isn't super detailed on what all of these flags do, but let's go thru them one by one. So far as I can tell, these are the flags you want to set to properly restrict your webviews from executing native code. Some of these are the defaults, but I've explicitly set them out of an abundance of caution against future changes to the default settings:
 
