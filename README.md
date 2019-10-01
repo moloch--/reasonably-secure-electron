@@ -353,8 +353,10 @@ Next we must assume relying upon Angular/React will eventually fail, which is a 
 Since a cross-site scripting vulnerability will result in the attacker's code executing in the same context as our own code, i.e. in the context of the DOM, we must impose limitations our own code. Electron can actually facilitate this, by default Electron applications have two or more processes: the 'main process' and one or more 'renderer' processes. The main process is a simple Node process like any other, using the Electron APIs this process creates the `BrowserWindow`s (the renderer processes), these processes communicate using inter-process communication (IPC):
 
 ```
-[Main Process (Node)] <--IPC--> [Renderer Process (DOM)]
+[ Main Process (Node) ] <--IPC--> [ Renderer Process (DOM) ]
 ```
+
+The first step will be to entirely disable access to the Node APIs from within the renderer process, and instead selectively expose functionality to the renderer. In the event our application is vulnerable to XSS the attacker will no longer be able to immediately execute native code. You may think this defeats the reasons we'd using Electron but stick with me.
 
 The [Electron documentation](https://electronjs.org/docs/api/browser-window#new-browserwindowoptions) for `BrowserWindow` isn't super detailed on what all of these flags do, but let's go thru them one by one. So far as I can tell, these are the flags you want to set to properly restrict your webviews from executing native code. Some of these are the defaults, but I've explicitly set them out of an abundance of caution against future changes to the default settings:
 
@@ -373,7 +375,7 @@ const mainWindow = new BrowserWindow({
     nodeIntegrationInSubFrames: false,
     nativeWindowOpen: false,
     safeDialogs: true,
-    preload: path.join(__dirname, 'preload.js'),
+    preload: path.join(__dirname, 'preload.js'), // We'll talk about this next
   },
 });
 ```
@@ -391,6 +393,14 @@ These are largely taken directly from the Electron documentation, but I've edito
 * `nodeIntegrationInSubFrames` - Option for enabling Node support in sub-frames such as iframes and child windows, always set this to `false`.
 * `nativeWindowOpen` - Whether to use native `window.open()`, because what could go wrong? Defaults to `false`.
 * `safeDialogs` - Whether to enable browser style consecutive dialog protection. 
+
+There is no one flag to disable all of the Node integrations in the renderer process, so instead we must disable `nodeIntegration`, `nodeIntegrationInWorker`, `nodeIntegrationInSubFrames`, `webviewTag`, `enableRemoteModule`, and `nativeWindowOpen`. Then we enable `sandbox`,`contextIsolation`, and `webSecurity` to ensure any malicious code injected via XSS cannot easily escape the renderer process.
+
+
+```
+                             |------------- Renderer -------------|
+[ Main Process ] <--(IPC)--> [ Preload ] <--(postMessage)-->[ DOM ] 
+```
 
 
 The preload script is just a small snippet of JavaScript:
