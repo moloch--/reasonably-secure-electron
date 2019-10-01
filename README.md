@@ -398,8 +398,8 @@ There is no one flag to disable all of the Node integrations in the renderer pro
 
 
 ```
-                             |------------- Renderer -------------|
-[ Main Process ] <--(IPC)--> [ Preload ] <--(postMessage)-->[ DOM ] 
+                             |------------- Renderer --------------|
+[ Main Process ] <--(IPC)--> [ Preload ] <--(postMessage)--> [ DOM ] 
 ```
 
 
