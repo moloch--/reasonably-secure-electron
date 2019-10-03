@@ -31,7 +31,6 @@ async function createMainWindow() {
   // Create the browser window.
   const gutterSize = 100;
   mainWindow = new BrowserWindow({
-    titleBarStyle: 'hidden',
     x: gutterSize,
     y: gutterSize,
     width: size.width - (gutterSize * 2),
@@ -60,7 +59,7 @@ async function createMainWindow() {
     mainWindow.show();
   });
 
-  mainWindow.loadURL(`${AppProtocol.scheme}://sliver/index.html`);
+  mainWindow.loadURL(`${AppProtocol.scheme}://app/index.html`);
   mainWindow.webContents.openDevTools();
 
   // Emitted when the window is closed.

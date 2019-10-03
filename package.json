@@ -1,14 +1,14 @@
 {
-  "name": "sliver-gui",
+  "name": "rse-gui",
   "version": "0.0.7",
   "description": "Cross-platform GUI for the Reasonably Secure Electron",
   "license": "GPLv3",
-  "homepage": "https://sliver.sh",
+  "homepage": "https://bishopfox.com/",
   "author": {
     "name": "moloch",
     "email": "jdemesy@bishopfox.com"
   },
-  "repository": "https://github.com/BishopFox/sliver",
+  "repository": "https://github.com/BishopFox/",
   "main": "main.js",
   "private": true,
   "scripts": {

@@ -260,7 +260,7 @@ This exploit is an excellent example of the limitations of CSPs, a CSP _cannot_ 
 
 ### What's in a Name?
 
-A function by any other name could be so vulnerable. The flaws in both Signal and Bloodhound AD stemmed from the use of [React](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml)'s `dangerouslySetInnerHTML` function, which despite its name is seemingly used with reckless abandon.
+A function by any other name could be so vulnerable. The flaws in both Signal and Bloodhound AD stemmed from the use of [React](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml)'s `dangerouslySetInnerHTML` function, which despite its name is seemingly used with reckless abandon. Clearly the React developers didn't go far enough calling the function "dangerous" and should have chosen the equally appropriate name `iDoNotCareAboutSecurityPlzHackMe()`.
 
 All of the aforementioned bugs are at their core cross-site scripting vulnerabilities (XSS), which is a terrible name. Cross-site scripting is a actually a JavaScript _injection vulnerability_. All injection vulnerabilities occur when the "computer" cannot properly differentiate between what is data and what is an instruction, and subsequently allows an attacker to trick the "computer" into misinterpreting attacker-controlled data as instructions. This can be said about XSS, as well as SQL injection, command injection, etc. The core mechanics of all these vulnerabilities are actually the same, save for what the "computer" is.
 
@@ -342,7 +342,7 @@ But this has yet to be standardized, so it's more of a footnote on what's to com
 
 ![Angular Compiler](blog/images/angular-connect-0.png)
 
-This leaves no ambiguity for an attacker to construct an injection vulnerability, and is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React based applications. Since the templates are lexically parsed, the framework knows the exact context in which a given value will be used, and can implement the correct encoding and/or sanitization routines (`property('name', ctx.name)` in the example above). Well, at least the ones that don't use React's `dangerouslySetInnerHTML()` and Angular's counterpart [`bypassSecurityTrustHtml()`](https://angular.io/api/platform-browser/DomSanitizer#bypassSecurityTrustHtml).
+This leaves no ambiguity for an attacker to construct an injection vulnerability, and is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React based applications. Since the templates are lexically parsed, the framework knows the exact context in which a given value will be used, and can implement the correct encoding and/or sanitization routines: `property('name', ctx.name)` in the example above. Well, at least the applications that don't use React's `dangerouslySetInnerHTML()` and Angular's counterpart [`bypassSecurityTrustHtml()`](https://angular.io/api/platform-browser/DomSanitizer#bypassSecurityTrustHtml).
 
 This is our first an most important design choice when it comes to building our reasonably secure Electron application. We will __never__ directly interact with the DOM, and instead defer to Angular to handle that interaction for us. Additionally, we will __never__ call `bypassSecurityTrustHtml()` or any related function. By avoiding any direct interaction with the DOM, we make an attacker's job incredibly hard.
 
@@ -350,7 +350,7 @@ This is our first an most important design choice when it comes to building our 
 
 Next we must assume relying upon Angular/React will eventually fail, which is a pretty good bet. While our own code may adhere to the strict guidelines set forth, we have no assurance that the infinite depths of our `node_modules/` directory contains only safe code.
 
-Since a cross-site scripting vulnerability will result in the attacker's code executing in the same context as our own code, i.e. in the context of the DOM, we must impose limitations our own code. Electron can actually facilitate this, by default Electron applications have two or more processes: the 'main process' and one or more 'renderer' processes. The main process is a simple Node process like any other, using the Electron APIs this process creates the `BrowserWindow`s (the renderer processes), these processes communicate using inter-process communication (IPC):
+Since a cross-site scripting vulnerability will result in the attacker's code executing in the same context as our own code, i.e. in the context of the DOM, we must impose limitations our own code. Electron can actually facilitate this, by default Electron applications have two or more processes: the 'main process' and one or more 'renderer' processes. The main process is a simple Node process like any other, using the Electron APIs this process creates the `BrowserWindow`s (the renderer processes). The renderer processes communicate with the main process using [inter-process communication](https://electronjs.org/docs/api/ipc-main) (IPC) also provided by Electron:
 
 ```
 [ Main Process (Node) ] <--IPC--> [ Renderer Process (DOM) ]
@@ -375,7 +375,7 @@ const mainWindow = new BrowserWindow({
     nodeIntegrationInSubFrames: false,
     nativeWindowOpen: false,
     safeDialogs: true,
-    preload: path.join(__dirname, 'preload.js'), // We'll talk about this next
+    preload: path.join(__dirname, 'preload.js'),
   },
 });
 ```
@@ -386,7 +386,7 @@ These are largely taken directly from the Electron documentation, but I've edito
 * `webSecurity` - This flag disables the same origin policy (SOP), setting this to `false` will kill the kitten nearest to you.
 * `contextIsolation` - Whether to run Electron APIs and the specified preload script in a separate JavaScript context. This is disabled by default, but you should always set this to `true` to protect against prototype tampering.
 * `webviewTag` - Whether to enable the `<webview>` tag. These tags are exceedingly dangerous, you should always disable this feature.
-* `enableRemoteModule` - Whether to enable the [remote module](https://electronjs.org/docs/api/remote). This module is dangerous, and should be disabled whenever possible. A far safer approach to IPC is layed out herein.
+* `enableRemoteModule` - Whether to enable the [remote module](https://electronjs.org/docs/api/remote). This module is dangerous, and should be disabled whenever possible, we'll talk about a far safer approach to IPC in a bit.
 * `allowRunningInsecureContent` - Allow an https page to run JavaScript, CSS or plugins from http URLs. Default is `false`, but y'all go ahead and double tap this one.
 * `nodeIntegration` -  Whether handing a loaded gun the DOM. Always this to `false`. 
 * `nodeIntegrationInWorker` - Whether node integration is enabled in web workers. Default is `false`.
@@ -394,8 +394,13 @@ These are largely taken directly from the Electron documentation, but I've edito
 * `nativeWindowOpen` - Whether to use native `window.open()`, because what could go wrong? Defaults to `false`.
 * `safeDialogs` - Whether to enable browser style consecutive dialog protection. 
 
-There is no one flag to disable all of the Node integrations in the renderer process, so instead we must disable `nodeIntegration`, `nodeIntegrationInWorker`, `nodeIntegrationInSubFrames`, `webviewTag`, `enableRemoteModule`, and `nativeWindowOpen`. Then we enable `sandbox`,`contextIsolation`, and `webSecurity` to ensure any malicious code injected via XSS cannot easily escape the renderer process.
+There is no one flag to disable all of the Node integrations in the renderer process, so instead we must disable `nodeIntegration`, `nodeIntegrationInWorker`, `nodeIntegrationInSubFrames`, `webviewTag`, `enableRemoteModule`, and `nativeWindowOpen`. Then we enable `sandbox`,`contextIsolation`, and `webSecurity` to ensure any malicious code injected via XSS cannot easily escape the renderer process. As the [Electron Security documentation](https://electronjs.org/docs/tutorial/security) points out it's imperative to disable both `nodeIntegration` as well as enable `contextIsolation` to ensure we properly contain the renderer process. 
 
+Next we'll need to selectively re-enable some native functionality and expose it to the renderer process, otherwise we may as well just load the application in the browser. There are a few different ways we can selectively expose functionality to the DOM. The first way is using the `remote` module, but as the Electron documentation even points out this module is dangerous, and we've already disabled it so that's not an option. Electron provides another mechanism called the "preload script" that executes before the DOM is loaded and allows us to expose arbitrary JavaScript symbols to the DOM runtime, and with `contextIsolation` enable the preload script is somewhat safeguarded from tampering by the DOM code. T
+
+The preload script always has access to the NodeJS APIs and has access to the same `window` object as the DOM. The intention of this functionality is so that we can re-introduce Node symbols. However, giving the DOM code direct access to Node symbols is dangerous, and will likely lead to escape vectors. We could also expose custom symbols that perform validation of arguments and this is slightly more safe, but not ideal.
+
+Instead we can leverage the browser's `postMessage` API to allow the preload script and the DOM to communicate over an existing mechanism without exposing any of the privileged preload symbols or code directly to the DOM code. [Doyensec](https://blog.doyensec.com/2019/04/03/subverting-electron-apps-via-insecure-preload.html)
 
 ```
                              |------------- Renderer --------------|
