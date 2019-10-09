@@ -1,5 +1,5 @@
 /*
-  Reasonbly Secure Electron
+  Reasonably Secure Electron
   Copyright (C) 2019  Bishop Fox
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -78,7 +78,7 @@ async function createMainWindow() {
 
 try {
 
-  // Custom procotol handler
+  // Custom protocol handler
   app.on('ready', () => {
     protocol.registerBufferProtocol(AppProtocol.scheme, AppProtocol.requestHandler, (err) => {
       if (err) {
@@ -118,13 +118,11 @@ try {
     }
   });
 
-
   app.on('activate', () => {
     if (mainWindow === null) {
       createMainWindow();
     }
   });
-
 
 } catch (error) {
   console.log(error);

@@ -47,10 +47,6 @@ export interface IPCMessage {
   data: string;
 }
 
-function decodeRequest(data: string): Uint8Array {
-  const buf = base64.decode(data);
-  return new Uint8Array(buf);
-}
 
 // IPC Methods used to start/interact with the RPCClient
 export class IPCHandlers {
@@ -117,7 +113,7 @@ export class IPCHandlers {
 
 }
 
-async function dispatchIPC(method: string, data: string): Promise<Object | null> {
+async function dispatchIPC(method: string, data: string): Promise<string | null> {
   console.log(`IPC Dispatch: ${method}`);
 
   // IPC handlers must start with "namespace_" this helps ensure we do not inadvertently
@@ -130,7 +126,7 @@ async function dispatchIPC(method: string, data: string): Promise<Object | null>
       return Promise.reject(`No handler for method: ${method}`);
     }
   } else {
-    return Promise.reject(`Invalid method handler namepsace for "${method}"`);
+    return Promise.reject(`Invalid method handler namespace for "${method}"`);
   }
 }
 

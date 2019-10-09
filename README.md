@@ -24,6 +24,9 @@ Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bis
     - [Sandcastles in the Sky](#sandcastles-in-the-sky)
       - [`main.ts`](#maints)
       - [`preload.js`](#preloadjs)
+      - [ipc.ts](#ipcts)
+      - [File Read/Write](#file-readwrite)
+      - [HTTP](#http)
     - [Origin Security](#origin-security)
       - [`app-protocol.ts`](#app-protocolts)
   - [When in Doubt, Castle](#when-in-doubt-castle)
@@ -279,7 +282,7 @@ So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the 
 
 As we've seen in [Part 1](#part-1---out-of-the-browser-into-the-fire), there's no security silver bullet. HTML encoding can fail, input sanitization can fail, content security policy can fail, prepared statements can fail, sandboxes fail, DEP ASLR SafeSEH and Control Flow Guard can all fail; no one control can prevent an attack, but that doesn't mean any of these technologies aren't worth using. Just as an aeronautical engineer must design a plane to survive rare but inevitable mechanical failures, so we must too engineer our applications to be robust against security failures. We must assume everything is hackable and it’s simply a matter of time and/or resources before someone finds a flaw, and in practice, this is always the case.
 
-Take for example the recent [checkm8 iPhone Boot ROM](https://github.com/axi0mX/ipwndfu) exploit. At the time of writing, the market capitalization of Apple is about $1 Trillion USD, so I think it's safe to assume Apple as a company has the resources to hire some of the most talented security engineers in the industry. Furthermore, Apple has repeatedly committed to protecting user privacy and due to the large revenue stream that is the AppStore, has a financial interest in protecting the security of the iPhone ecosystem. Yet flaws are found in one of the most security critical components. We as an industry have yet to discover a method for "absolute security," there is in existence no _practical example_ of a perfectly secure even moderately complex application (at least that I'm aware of, hell even [djbdns](https://en.wikipedia.org/wiki/Djbdns) had/has bugs). There are of course examples of "perfect security" in a vacuum, one needs look no further than the [one time pad](https://en.wikipedia.org/wiki/One-time_pad), but these are of course not _practical solutions_ in the real world.
+Take for example the recent [checkm8 iPhone Boot ROM](https://github.com/axi0mX/ipwndfu) exploit. At the time of writing, the market capitalization of Apple is about $1 Trillion USD, so I think it's safe to assume Apple as a company has the resources to hire some of the most talented security engineers in the industry. Furthermore, Apple has repeatedly committed to protecting user privacy and due to the large revenue stream that is the AppStore, has a financial interest in protecting the security of the iPhone ecosystem. Yet flaws are found in one of the most security critical components. We as an industry have yet to discover a method for "perfect security," there is in existence no _practical example_ of a perfectly secure even moderately complex application (at least that I'm aware of, hell even [djbdns](https://en.wikipedia.org/wiki/Djbdns) had/has bugs). There are of course examples of "perfect security" in a vacuum, one needs look no further than the [one time pad](https://en.wikipedia.org/wiki/One-time_pad), but these are of course not _practical solutions_ in the real world.
 
 Our only recourse is to is to add to the time and resources necessary to complete an attack. To that end, we have one major advantage: we get to stack the deck.
 
@@ -352,7 +355,7 @@ Next we must assume relying upon Angular/React will eventually fail, which is a 
 
 Since a cross-site scripting vulnerability will result in the attacker's code executing in the same context as our own code, i.e. in the context of the DOM, we must impose limitations our own code. Electron can actually facilitate this, by default Electron applications have two or more processes: the 'main process' and one or more 'renderer' processes. The main process is a simple Node process like any other, using the Electron APIs this process creates the `BrowserWindow`s (the renderer processes). The renderer processes communicate with the main process using [inter-process communication](https://electronjs.org/docs/api/ipc-main) (IPC) also provided by Electron:
 
-```
+```text
 [ Main Process (Node) ] <--IPC--> [ Renderer Process (DOM) ]
 ```
 
@@ -388,7 +391,7 @@ These are largely taken directly from the Electron documentation, but I've edito
 * `webviewTag` - Whether to enable the `<webview>` tag. These tags are exceedingly dangerous, you should always disable this feature.
 * `enableRemoteModule` - Whether to enable the [remote module](https://electronjs.org/docs/api/remote). This module is dangerous, and should be disabled whenever possible, we'll talk about a far safer approach to IPC in a bit.
 * `allowRunningInsecureContent` - Allow an https page to run JavaScript, CSS or plugins from http URLs. Default is `false`, but y'all go ahead and double tap this one.
-* `nodeIntegration` -  Whether to hand a loaded gun to the DOM. Always set this to `false`.
+* `nodeIntegration` -  Gives the DOM access to the NodeJS APIs. Recklessly defaults to `true`, always set this to `false`.
 * `nodeIntegrationInWorker` - Whether node integration is enabled in web workers. Default is `false`.
 * `nodeIntegrationInSubFrames` - Option for enabling Node support in sub-frames such as iframes and child windows, always set this to `false`.
 * `nativeWindowOpen` - Whether to use native `window.open()`, because what could go wrong? Defaults to `false`.
@@ -398,17 +401,35 @@ There is no one flag to disable all of the Node integrations in the renderer pro
 
 Next we'll need to selectively re-enable some native functionality and expose it to the renderer process, otherwise we may as well just load the application in the browser. There are a few different ways we can selectively expose functionality to the DOM. The first way is using the `remote` module, but as the Electron documentation even points out this module is dangerous, and we've already disabled it so that's not an option. Electron provides another mechanism called the "preload script" that executes before the DOM is loaded and allows us to expose arbitrary JavaScript symbols to the DOM runtime, and with `contextIsolation` enable the preload script is somewhat safeguarded from tampering by the DOM code. T
 
-The preload script always has access to the NodeJS APIs and has access to the same `window` object as the DOM. The intention of this functionality is so that we can re-introduce Node symbols. However, giving the DOM code direct access to Node symbols is dangerous, and will likely lead to escape vectors. We could also expose custom symbols that perform validation of arguments and this is slightly more safe, but not ideal.
+The preload script always has access to the NodeJS APIs and has access to the same `window` object as the DOM. The intention of this functionality is so that we can re-introduce Node symbols. However, giving the DOM code direct access to Node symbols is dangerous, and will likely lead to escape vectors. We could also expose custom symbols that perform validation of arguments and this is slightly more safe, but not ideal. [Doyensec](https://blog.doyensec.com/2019/04/03/subverting-electron-apps-via-insecure-preload.html) has a couple great examples of attacking Node symbols that are re-introduced to the DOM runtime.
 
-Instead we can leverage the browser's `postMessage` API to allow the preload script and the DOM to communicate over an existing mechanism without exposing any of the privileged preload symbols or code directly to the DOM code. [Doyensec](https://blog.doyensec.com/2019/04/03/subverting-electron-apps-via-insecure-preload.html)
+Instead we'll leverage the browser's `postMessage` API to allow the preload script and the DOM to communicate over an existing mechanism without exposing any of the privileged preload symbols or code directly to the sandboxed DOM code. 
 
-```
+```text
                              |------------- Renderer --------------|
 [ Main Process ] <--(IPC)--> [ Preload ] <--(postMessage)--> [ DOM ]
 ```
 
+We can also leverage TypeScript (or alternatively [JSON Schema](https://json-schema.org/)) to avoid type-confusion related issues. Below is my basic TypeScript interface for the JSON message we'll use to communicate between the Node (main) process and the untrusted DOM (renderer) process:
 
-The preload script is just a small snippet of JavaScript:
+```typescript
+export interface IPCMessage {
+  id: number;
+  type: string;
+  method: string;
+  data: string;
+}
+```
+
+* __id__: A random integer used to corelate request/responses
+* __type__: The type of message, this will be `request`, `response`, or `push`.
+  * `request`: An outgoing (from DOM to Node) `request` that should elicit a single `response`. 
+  * `response`: A response (from Node to DOM) for a corresponding request, in some cases `response`s may be ignored.
+  * `push`: A message pushed from Node to the DOM that was not the result of a `request`
+* __method__: The name of the function we want to invoke in the Node process.
+* __data__: Parameters to the `method` specified in the message.
+
+This has the advantage of forcing the sandboxed code to communicate with the privileged code using data-only serialization protocols such as JSON, which the preload script can easily enforce. In the example below we enforce that any given message (1) must be valid JSON, (2) contain the keys `type` and `method`, and `method` must start with the prefix `client_`. This extra namespace is helps ensure we do not inadvertently expose methods that we do not want exposed to the IPC interface:
 
 #### [`preload.js`](preload.js)
 ```javascript
@@ -430,13 +451,42 @@ window.addEventListener('message', (event) => {
 ipcRenderer.on('ipc', (_, msg) => {
   try {
     if (msg.type === 'response' || msg.type === 'push') {
-      window.postMessage(JSON.stringify(msg), '*');
+      window.postMessage(JSON.stringify(msg), '*');  // Can be improved by avoiding '*'
     }
   } catch (err) {
     console.error(err);
   }
 });
 ```
+
+The preload script has two functions, one that does basic format verification of an incoming message (i.e. `request`) and forwards it on to the main process. The second functions takes `response` and `push` messages from the main process and sends them back to the DOM via `postMessage`.
+
+Once a message is sent from the preload script to the main process, it is then passed to our `dispatchIPC()` function, this function is responsible for invoking the proper `method`, passing the `data` parameter to the handler, and returning any `response` back to the caller.
+
+#### [ipc.ts](ipc/ipc.ts#L120)
+```typescript
+async function dispatchIPC(method: string, data: string): Promise<string | null> {
+  console.log(`IPC Dispatch: ${method}`);
+
+  // IPC handlers must start with "namespace_" this helps ensure we do not inadvertently
+  // expose methods that we don't want exposed to the sandboxed code.
+  if (['client_'].some(prefix => method.startsWith(prefix))) {
+    if (typeof IPCHandlers[method] === 'function') {
+      const result: string = await IPCHandlers[method](data);
+      return result;
+    } else {
+      return Promise.reject(`No handler for method: ${method}`);
+    }
+  } else {
+    return Promise.reject(`Invalid method handler namespace for "${method}"`);
+  }
+}
+```
+
+#### File Read/Write
+
+
+#### HTTP 
 
 
 

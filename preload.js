@@ -43,5 +43,3 @@ ipcRenderer.on('ipc', (_, msg) => {
     console.error(err);
   }
 });
-
-window.open = function(..._) {}
