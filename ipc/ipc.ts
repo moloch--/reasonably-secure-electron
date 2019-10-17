@@ -23,7 +23,7 @@ import { homedir } from 'os';
 import * as base64 from 'base64-arraybuffer';
 import * as fs from 'fs';
 import * as path from 'path';
-
+import * as Ajv from 'ajv';
 
 export interface ReadFileReq {
   title: string;
@@ -47,11 +47,56 @@ export interface IPCMessage {
   data: string;
 }
 
+// jsonSchema - A JSON Schema decorator, somewhat redundant given we're using TypeScript
+// but it provides a stricter method of validating incoming JSON messages than simply
+// casting the result of JSON.parse() to an interface.
+function jsonSchema(schema: object) {
+  const ajv = new Ajv({allErrors: true});
+  schema["additionalProperties"] = false;
+  const validate = ajv.compile(schema);
+  return (target: any, propertyKey: string, descriptor: PropertyDescriptor) => {
+
+    const originalMethod = descriptor.value;
+    descriptor.value = (arg: string) => {
+      const valid = validate(arg);
+      if (valid) {
+        return originalMethod(arg);
+      } else {
+        console.error(validate.errors);
+        return Promise.reject(`Invalid schema: ${ajv.errorsText(validate.errors)}`);
+      }
+    };
+
+    return descriptor;
+  };
+}
 
 // IPC Methods used to start/interact with the RPCClient
 export class IPCHandlers {
 
-  static async client_readFile(req: string): Promise<string> {
+  @jsonSchema({
+    "properties": {
+      "title": {"type": "string", "minLength": 1, "maxLength": 100},
+      "message": {"type": "string", "minLength": 1, "maxLength": 100},
+      "openDirectory": {"type": "boolean"},
+      "multiSelections": {"type": "boolean"},
+      "filter": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string"},
+            "extensions": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "required": ["title", "message"]
+  })
+  static async fs_readFile(req: string): Promise<string> {
     const readFileReq: ReadFileReq = JSON.parse(req);
     const dialogOptions = {
       title: readFileReq.title,
@@ -66,7 +111,7 @@ export class IPCHandlers {
         fs.readFile(filePath, (err, data) => {
           files.push({
             filePath: filePath,
-            error: err.toString(),
+            error: err ? err.toString() : null,
             data: data ? base64.encode(data) : null
           });
           resolve(); // Failures get stored in `files` array
@@ -76,9 +121,16 @@ export class IPCHandlers {
     return JSON.stringify({ files: files });
   }
 
-  // For now all files are just saved to the Downloads folder,
-  // which should exist on all supported platforms.
-  static client_saveFile(req: string): Promise<string> {
+  @jsonSchema({
+    "properties": {
+      "title": {"type": "string", "minLength": 1, "maxLength": 100},
+      "message": {"type": "string", "minLength": 1, "maxLength": 100},
+      "filename": {"type": "string", "minLength": 1},
+      "data": {"type": "string"}
+    },
+    "required": ["title", "message", "filename", "data"]
+  })
+  static fs_saveFile(req: string): Promise<string> {
     return new Promise(async (resolve, reject) => {
       const saveFileReq: SaveFileReq = JSON.parse(req);
       const dialogOptions = {
@@ -106,11 +158,6 @@ export class IPCHandlers {
     });
   }
 
-  static client_exit() {
-    process.on('unhandledRejection', () => { }); // STFU Node
-    process.exit(0);
-  }
-
 }
 
 async function dispatchIPC(method: string, data: string): Promise<string | null> {
@@ -118,7 +165,7 @@ async function dispatchIPC(method: string, data: string): Promise<string | null>
 
   // IPC handlers must start with "namespace_" this helps ensure we do not inadvertently
   // expose methods that we don't want exposed to the sandboxed code.
-  if (['client_'].some(prefix => method.startsWith(prefix))) {
+  if (['fs_'].some(prefix => method.startsWith(prefix))) {
     if (typeof IPCHandlers[method] === 'function') {
       const result: string = await IPCHandlers[method](data);
       return result;

@@ -25,7 +25,7 @@ window.addEventListener('message', (event) => {
   try {
     const msg = JSON.parse(event.data);
     if (msg.type === 'request') {
-      if (['client_'].some(prefix => msg.method.startsWith(prefix))) {
+      if (['fs_'].some(prefix => msg.method.startsWith(prefix))) {
         ipcRenderer.send('ipc', msg);
       }
     }

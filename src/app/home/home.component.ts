@@ -1,4 +1,5 @@
 import { Component, OnInit } from '@angular/core';
+import { FileSystemService } from '../providers/filesystem.service';
 
 @Component({
   selector: 'app-home',
@@ -7,9 +8,22 @@ import { Component, OnInit } from '@angular/core';
 })
 export class HomeComponent implements OnInit {
 
-  constructor() { }
+  constructor(private _fsService: FileSystemService) { }
 
-  ngOnInit() {
+  ngOnInit() { }
+
+  async openFileExample() {
+    const resp = await this._fsService.readFile('Open File', 'Please select a file');
+    console.log(resp);
+  }
+
+  async saveFileExample() {
+    const filename = 'hello-world.txt';
+    const msg = `Where would you like to save ${filename}?`;
+    const encoder = new TextEncoder();
+    const data = encoder.encode('Hello world!');
+    const resp = await this._fsService.saveFile('Save File', msg, filename, data);
+    console.log(resp ? resp : '[!] User cancelled operation');
   }
 
 }

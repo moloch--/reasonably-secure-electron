@@ -13,7 +13,7 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 -------------------------------------------------------------------------
 
-Implementing a custom protocol acheives two goals:
+Implementing a custom protocol achieves two goals:
   1) Allows us to use ES6 modules/targets for Angular
   2) Avoids running the app in a file:// origin
 

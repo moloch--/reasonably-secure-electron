@@ -19,15 +19,20 @@ Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bis
       - [`Background.html`](#backgroundhtml)
     - [What's in a Name?](#whats-in-a-name)
     - [There's No Real Security in the Real World](#theres-no-real-security-in-the-real-world)
-  - [Part 2 - Reasonably Secure](#part-2---reasonably-secure)
-    - [Stacking the Deck](#stacking-the-deck)
-    - [Sandcastles in the Sky](#sandcastles-in-the-sky)
+  - [Part 2 - Stacking the Deck](#part-2---stacking-the-deck)
+    - [Security, the Hard Way](#security-the-hard-way)
+    - [Playing in the Sandbox](#playing-in-the-sandbox)
       - [`main.ts`](#maints)
+      - [`ipc.service.ts`](#ipcservicets)
       - [`preload.js`](#preloadjs)
-      - [ipc.ts](#ipcts)
-      - [File Read/Write](#file-readwrite)
-      - [HTTP](#http)
+      - [`ipc.ts`](#ipcts)
+    - [File Read](#file-read)
+      - [`ipc.ts`](#ipcts-1)
+      - [`ipc.ts`](#ipcts-2)
+      - [`ipc.ts`](#ipcts-3)
+    - [File Write](#file-write)
     - [Origin Security](#origin-security)
+      - [Vulnerable Protocol Handler](#vulnerable-protocol-handler)
       - [`app-protocol.ts`](#app-protocolts)
   - [When in Doubt, Castle](#when-in-doubt-castle)
 
@@ -39,7 +44,8 @@ _"In the face of ambiguity, refuse the temptation to guess."_ -The Zen of Python
 
 In the same vein, Electron is also often regarded as "inherently insecure." While this reputation is not entirely undeserved, application security is far more dependent upon engineering practices rather than the underlying framework. That is not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuitive design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though we may need to keep an eye out for a variety of pitfalls as we'll explore.
 
-In [Part 1](#part-1---out-of-the-browser-into-the-fire) we'll examine how various Electron exploitation techniques work, focusing primarily on cross-site scripting. In [Part 2](#part-2---reasonably-secure) we'll dive into how to design applications that can defend against these types of attacks, including a functional example  pattern that's _reasonably secure_.
+In [Part 1](#part-1---out-of-the-browser-into-the-fire) we'll examine how various Electron exploitation techniques work, focusing primarily on cross-site scripting. In [Part 2](#part-2---reasonably-secure) we'll dive into how to design applications that can defend against these types of attacks, including a functional example  pattern that's _reasonably secure_. [Part 2](#part-2---reasonably-secure) is based on lessons learned from building the (yet unreleased) GUI for [Sliver](https://github.com/BishopFox/sliver), an implant framework for red teams I've building in my spare time.
+
 
 ## Part 1 - Out of the Browser Into the Fire
 
@@ -100,7 +106,7 @@ Here we see the empty string `infoTabContent` is replaced with a JavaScript obje
 } else if (edge.label === 'SQLAdmin') {
   formatted = `The user ${sourceName} is a SQL admin on the computer ${targetName}.
 
-  There is at least one MSSQL instance running on ${targetName} where the user ${sourceName} is the account configured to run the SQL Server instance. The typical configuration for MSSQL is to have the local Windows account or Active Directory domain account that is configured to run the SQL Server service (the primary database engine for SQL Server) have sysadmin privileges in the SQL Server application. As a result, the SQL Server service account can be used to log into the SQL Server instance remotely, read all of the databases (including those protected with transparent encryption), and run operating systems command through SQL Server (as the service account) using a variety of techniques.
+  There is at least one MSSQL instance running on ${targetName} where the user ${sourceName} is the account configured to run the SQL Server instance. The typical configuration for MSSQL ... removed
 ```
 
 Based on my usage and understanding of the tool, and as the help dialog helpfully points out, these values are based on data collected by the ingestor script from Active Directory i.e. from an 'untrusted' source, and therefore "attacker" controlled (note the ironic inversion of 'attacker' in this context). This confirms the exploitability of our candidate point, attacker controlled-content is indeed passed to `dangerouslySetInnerHTML`. All an attacker needs to do is plant malicious values, such as a GPO as Fab demonstrated, with the following name:
@@ -282,15 +288,13 @@ So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the 
 
 As we've seen in [Part 1](#part-1---out-of-the-browser-into-the-fire), there's no security silver bullet. HTML encoding can fail, input sanitization can fail, content security policy can fail, prepared statements can fail, sandboxes fail, DEP ASLR SafeSEH and Control Flow Guard can all fail; no one control can prevent an attack, but that doesn't mean any of these technologies aren't worth using. Just as an aeronautical engineer must design a plane to survive rare but inevitable mechanical failures, so we must too engineer our applications to be robust against security failures. We must assume everything is hackable and it’s simply a matter of time and/or resources before someone finds a flaw, and in practice, this is always the case.
 
-Take for example the recent [checkm8 iPhone Boot ROM](https://github.com/axi0mX/ipwndfu) exploit. At the time of writing, the market capitalization of Apple is about $1 Trillion USD, so I think it's safe to assume Apple as a company has the resources to hire some of the most talented security engineers in the industry. Furthermore, Apple has repeatedly committed to protecting user privacy and due to the large revenue stream that is the AppStore, has a financial interest in protecting the security of the iPhone ecosystem. Yet flaws are found in one of the most security critical components. We as an industry have yet to discover a method for "perfect security," there is in existence no _practical example_ of a perfectly secure even moderately complex application (at least that I'm aware of, hell even [djbdns](https://en.wikipedia.org/wiki/Djbdns) had/has bugs). There are of course examples of "perfect security" in a vacuum, one needs look no further than the [one time pad](https://en.wikipedia.org/wiki/One-time_pad), but these are of course not _practical solutions_ in the real world.
-
 Our only recourse is to is to add to the time and resources necessary to complete an attack. To that end, we have one major advantage: we get to stack the deck.
 
-## Part 2 - Reasonably Secure
+## Part 2 - Stacking the Deck
 
-In this repository you'll find my functional example of a reasonably secure Electron application pattern. Based on my personal preference, the example application uses Angular and TypeScript. However, everything in this post is also equally applicable to React if that is your preference. I highly recommend selecting one of these two frameworks for reasons discussed below.
+In this repository you'll find my functional example of a "reasonably secure Electron" application pattern. Based on my personal preference, the example application uses Angular and TypeScript. It's based on the design I've been using for the unreleased [Sliver](https://github.com/BishopFox/sliver) GUI. However, everything in this post is also equally applicable to React if that is your preference. I highly recommend selecting one of these two frameworks for reasons discussed below.
 
-### Stacking the Deck
+### Security, the Hard Way
 
 So, what is the analog for a SQL prepared statement in the DOM? Is there a way to dynamically build a DOM using only safe methods? Yes! But, let's build upon a naive first approach. The least safe way to dynamically construct a DOM is using JavaScript string interpolation or string concatenation:
 
@@ -349,7 +353,7 @@ This leaves no ambiguity for an attacker to construct an injection vulnerability
 
 This is our first and most important design choice when it comes to building our reasonably secure Electron application. We will __never__ directly interact with the DOM, and instead defer to Angular to handle that interaction for us. Additionally, we will __never__ call `bypassSecurityTrustHtml()` or any related function. By avoiding any direct interaction with the DOM, we make an attacker's job incredibly hard.
 
-### Sandcastles in the Sky
+### Playing in the Sandbox
 
 Next we must assume relying upon Angular/React will eventually fail, which is a pretty good bet. While our own code may adhere to the strict guidelines set forth, we have no assurance that the infinite depths of our `node_modules/` directory contains only safe code.
 
@@ -403,14 +407,14 @@ Next we'll need to selectively re-enable some native functionality and expose it
 
 The preload script always has access to the NodeJS APIs and has access to the same `window` object as the DOM. The intention of this functionality is so that we can re-introduce Node symbols. However, giving the DOM code direct access to Node symbols is dangerous, and will likely lead to escape vectors. We could also expose custom symbols that perform validation of arguments and this is slightly more safe, but not ideal. [Doyensec](https://blog.doyensec.com/2019/04/03/subverting-electron-apps-via-insecure-preload.html) has a couple great examples of attacking Node symbols that are re-introduced to the DOM runtime.
 
-Instead we'll leverage the browser's `postMessage` API to allow the preload script and the DOM to communicate over an existing mechanism without exposing any of the privileged preload symbols or code directly to the sandboxed DOM code. 
+Instead we'll leverage the browser's `postMessage` API to allow the preload script and the DOM to communicate over an existing mechanism _without exposing any privileged symbols_ or code directly to the sandboxed DOM code. 
 
 ```text
                              |------------- Renderer --------------|
 [ Main Process ] <--(IPC)--> [ Preload ] <--(postMessage)--> [ DOM ]
 ```
 
-We can also leverage TypeScript (or alternatively [JSON Schema](https://json-schema.org/)) to avoid type-confusion related issues. Below is my basic TypeScript interface for the JSON message we'll use to communicate between the Node (main) process and the untrusted DOM (renderer) process:
+Below is my basic TypeScript interface for the JSON message we'll use to communicate between the Node (main) process and the untrusted DOM (renderer) process:
 
 ```typescript
 export interface IPCMessage {
@@ -429,18 +433,68 @@ export interface IPCMessage {
 * __method__: The name of the function we want to invoke in the Node process.
 * __data__: Parameters to the `method` specified in the message.
 
-This has the advantage of forcing the sandboxed code to communicate with the privileged code using data-only serialization protocols such as JSON, which the preload script can easily enforce. In the example below we enforce that any given message (1) must be valid JSON, (2) contain the keys `type` and `method`, and `method` must start with the prefix `client_`. This extra namespace is helps ensure we do not inadvertently expose methods that we do not want exposed to the IPC interface:
+This has the advantage of forcing the sandboxed code to communicate with the privileged code using data-only serialization protocols such as JSON. We can easily abstract away the messy IPC details with an Angular service. Here we leverage RXJS observables to hide some of the IPC details like `msgId`s and only expose a simple async request/response API:
+
+#### [`ipc.service.ts`](src/app/providers/ipc.service.ts)
+```typescript
+export class IPCService {
+
+  private _ipcResponse$ = new Subject<IPCMessage>();
+
+  constructor() {
+    // Start a listener, messages are then broadcast via an RXJS Subject
+    window.addEventListener('message', (ipcEvent) => {
+      try {
+        const msg: IPCMessage = JSON.parse(ipcEvent.data);
+        if (msg.type === 'response') {
+          this._ipcResponse$.next(msg);
+        } else if (msg.type === 'push') {
+          // Do something with 'push' ...
+        }
+      } catch (err) {
+        console.error(`[IPCService] ${err}`);
+      }
+    });
+  }
+
+  request(method: string, data?: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const msgId = this.randomId();
+      const subscription = this._ipcResponse$.subscribe((msg: IPCMessage) => {
+        if (msg.id === msgId) {
+          subscription.unsubscribe();  // We got our response
+          if (msg.method !== 'error') {
+            resolve(msg.data);
+          } else {
+            reject(msg.data);
+          }
+        }
+      });
+      // Send request via postMessage() to the preload script
+      window.postMessage(JSON.stringify({
+        id: msgId,
+        type: 'request',
+        method: method,
+        data: data,
+      }), '*');
+    });
+  }
+}
+```
+
+Next in the preload script we ensure any given message (1) must be valid JSON, (2) contain the keys `type` and `method`, and `method` must start with the prefix `fs_` before passing it along via Electron's IPC to the main process. This extra namespace is helps ensure we do not inadvertently expose methods that we do not want exposed to the IPC interface. Note we can easily add additional namespaces if we want:
 
 #### [`preload.js`](preload.js)
 ```javascript
 const { ipcRenderer } = require('electron');
 
+// Incoming message from the sandboxed code
 window.addEventListener('message', (event) => {
   try {
     const msg = JSON.parse(event.data);
     if (msg.type === 'request') {
-      if (['client_'].some(prefix => msg.method.startsWith(prefix))) {
-        ipcRenderer.send('ipc', msg);
+      if (['fs_'].some(prefix => msg.method.startsWith(prefix))) {
+        ipcRenderer.send('ipc', msg);  // Send message to main process
       }
     }
   } catch (err) {
@@ -448,10 +502,11 @@ window.addEventListener('message', (event) => {
   }
 });
 
+// Responses and pushes from the main process
 ipcRenderer.on('ipc', (_, msg) => {
   try {
     if (msg.type === 'response' || msg.type === 'push') {
-      window.postMessage(JSON.stringify(msg), '*');  // Can be improved by avoiding '*'
+      window.postMessage(JSON.stringify(msg), '*');  // Send back to sandbox
     }
   } catch (err) {
     console.error(err);
@@ -461,44 +516,203 @@ ipcRenderer.on('ipc', (_, msg) => {
 
 The preload script has two functions, one that does basic format verification of an incoming message (i.e. `request`) and forwards it on to the main process. The second functions takes `response` and `push` messages from the main process and sends them back to the DOM via `postMessage`.
 
-Once a message is sent from the preload script to the main process, it is then passed to our `dispatchIPC()` function, this function is responsible for invoking the proper `method`, passing the `data` parameter to the handler, and returning any `response` back to the caller.
+Once a message is sent from the preload script to the main process, it is then passed to our `dispatchIPC()` function, this function is responsible for invoking the proper handler `method`, passing the `data` parameter to the handler, and returning any `response` back to the caller. `IPCHandler` is just a class of static methods (more on this below):
 
-#### [ipc.ts](ipc/ipc.ts#L120)
+#### [`ipc.ts`](ipc/ipc.ts)
 ```typescript
 async function dispatchIPC(method: string, data: string): Promise<string | null> {
   console.log(`IPC Dispatch: ${method}`);
 
   // IPC handlers must start with "namespace_" this helps ensure we do not inadvertently
   // expose methods that we don't want exposed to the sandboxed code.
-  if (['client_'].some(prefix => method.startsWith(prefix))) {
+  if (['fs_'].some(prefix => method.startsWith(prefix))) {
     if (typeof IPCHandlers[method] === 'function') {
-      const result: string = await IPCHandlers[method](data);
+      const result: string = await IPCHandlers[method](data);  // Call the handler, pass in data
       return result;
     } else {
       return Promise.reject(`No handler for method: ${method}`);
     }
   } else {
-    return Promise.reject(`Invalid method handler namespace for "${method}"`);
+    return Promise.reject(`Invalid method handler namespace "${method}"`);
   }
 }
 ```
 
-#### File Read/Write
+From here we have a fully functional RPC/IPC interface between the trusted and untrusted code. Next we'll safely re-implement some "Desktop" application functionality.
 
+### File Read
 
-#### HTTP 
+The first common piece of functionality we'll want to restore to our sandboxed application is the ability to read and write to the file system. It would be easy to restrict the sandboxed code to only read/write to certain directories (such as an application subdirectory), but we'll first build an arbitrary file read/write interface that allows the user to select what file(s) to expose to the untrusted code. It's critical we only allow our sandboxed code to ask the trusted code to read a file, simply allowing to sandboxed code to ready any file without user interaction would defeat the purpose of sandboxing the code to begin with.
 
+We'll first create an IPC handler function that accepts parameters from the untrusted code such as the dialog text and default directory. Importantly, the Node process will not actually read any files based on the parameters from the untrusted code we require the user to actively select the files from the file system. The untrusted code only controls what the dialog says, and it could of course lie to the user but at the end of the day the user would have to actively expose the files to the application:
 
+#### [`ipc.ts`](ipc/ipc.ts)
+```typescript
+export class IPCHandlers {
+
+  static async fs_readFile(req: string): Promise<string> {
+    const readFileReq: ReadFileReq = JSON.parse(req);
+    const dialogOptions = {
+      title: readFileReq.title,
+      message: readFileReq.message,
+      openDirectory: readFileReq.openDirectory,
+      multiSelections: readFileReq.multiSelections
+    };
+    const files = [];
+    const open = await dialog.showOpenDialog(null, dialogOptions);
+    await Promise.all(open.filePaths.map((filePath) => {
+      return new Promise(async (resolve) => {
+        fs.readFile(filePath, (err, data) => {
+          files.push({
+            filePath: filePath,
+            error: err ? err.toString() : null,
+            data: data ? base64.encode(data) : null
+          });
+          resolve(); // Failures get stored in `files` array
+        });
+      });
+    }));
+    return JSON.stringify({ files: files });
+  }
+}
+```
+
+The other piece that is controlled by the untrusted code in this example is the `req` parameter, which at this point is just a simple string, that presumably is JSON but if an attacker was able to compromise the sandboxed DOM code via something like cross-site script we can't make any assumptions about the format of this string. We can easily ensure it's valid JSON by simply parsing as such with `JSON.parse()` --but it's entirely possible the attacker could send us a JSON object of different types, lengths, etc. than we're expecting. This can lead to type confusion and mass assignment vulnerabilities among others if we're not careful.
+
+We can create a reusable TypeScript decorator as a convenient way to guardrail our RPC methods. Decorators are a powerful tool that enables us to create "method level" security controls. We are making two big assumptions with the following decorator 1) the wrapped method accepts a single string/JSON argument and 2) the method returns some kind of Promise, since we return a rejected Promise in the event the argument is not properly formatted. Writing a more generic version of this decorator is left as an exercise for the reader:
+
+#### [`ipc.ts`](ipc/ipc.ts)
+```typescript
+function jsonSchema(schema: object) {
+  const ajv = new Ajv({allErrors: true});
+  schema["additionalProperties"] = false;  // Disable additionalProperties for all schemas
+  const validate = ajv.compile(schema);
+  return (target: any, propertyKey: string, descriptor: PropertyDescriptor) => {
+
+    const originalMethod = descriptor.value;
+    descriptor.value = (arg: string) => {
+      const valid = validate(arg);
+      if (valid) {
+        return originalMethod(arg); // Call the wrapped function with the original arg
+      } else {
+        console.error(validate.errors);
+        return Promise.reject(`Invalid schema: ${ajv.errorsText(validate.errors)}`);
+      }
+    };
+
+    return descriptor;
+  };
+}
+```
+
+Now for every method we can easily wrap our handler with the `@jsonSchema` decorator to ensure any call to the function will contain a properly formatted/typed JSON object. In fact, the handler code won't even be executed unless the untrusted code provides us with a properly formatted message:
+
+#### [`ipc.ts`](ipc/ipc.ts)
+```typescript
+export class IPCHandlers {
+
+  @jsonSchema({
+    "properties": {
+      "title": {"type": "string", "minLength": 1, "maxLength": 100},
+      "message": {"type": "string", "minLength": 1, "maxLength": 100},
+      "openDirectory": {"type": "boolean"},
+      "multiSelections": {"type": "boolean"},
+    },
+    "required": ["title", "message"]
+  })
+  static async fs_readFile(req: string): Promise<string> {
+```
+
+There is some overlap here since we're using TypeScript, but JSON Schema gives us more control over how to validate the incoming JSON object than simply typecasting it to an interface. However, this technique can be easily repurposed into pure ES2015+ JavaScript too.
+
+However, JSON schema only validates the format of the object, it make assurances that the values within the JSON object are safe to use. We still must properly validate, normalize, sanitize, and/or encode values depending on the context in which they are used. 
+
+### File Write
+
+To demonstrate this let's create another IPC handler that can be used to save or write files to the file system from the DOM/untrusted code. In this case the untrusted code controls the `filename` parameter, but our JSON Schema only validates that this parameter is a string. If that string contained a value such as `../../../../foo` it could be problematic. So it is paramount that we use `path.basename()` to ensure the dialog defaults to the correct path: 
+
+```typescript
+export class IPCHandlers {
+
+  // ... remove for brevity
+
+  @jsonSchema({
+    "properties": {
+      "title": {"type": "string", "minLength": 1, "maxLength": 100},
+      "message": {"type": "string", "minLength": 1, "maxLength": 100},
+      "filename": {"type": "string", "minLength": 1},
+      "data": {"type": "string"}
+    },
+    "required": ["title", "message", "filename", "data"]
+  })
+  static fs_saveFile(req: string): Promise<string> {
+    return new Promise(async (resolve, reject) => {
+      const saveFileReq: SaveFileReq = JSON.parse(req);
+      const dialogOptions = {
+        title: saveFileReq.title,
+        message: saveFileReq.message,
+        // Default path is the Downloads directory, careful incorporating the untrusted filename
+        defaultPath: path.join(homedir(), 'Downloads', path.basename(saveFileReq.filename)),
+      };
+      const save = await dialog.showSaveDialog(dialogOptions);
+      console.log(`[save file] ${save.filePath}`);
+      if (save.canceled) {
+        return resolve('');  // Must return to stop execution
+      }
+      const fileOptions = {
+        mode: 0o644,
+        encoding: 'binary',
+      };
+      const data = Buffer.from(base64.decode(saveFileReq.data));
+      fs.writeFile(save.filePath, data, fileOptions, (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(JSON.stringify({ filename: save.filePath }));
+        }
+      });
+    });
+  }
+```
+
+This is of course just a simple example, in more complex APIs even more validation/normalization/canonicalization/encoding may be required to safely use a given value. The key take away here is that we cannot rely upon JSON Schema to do all of the validation, we still need to treat these values as untrusted parameters.
+
+In the end we're left with a very simple API for our component code, and if we wanted we could even mock many of the existing Node APIs into an IPC/RPC sandboxed version. The example we just build exposes the following API to read files from within the sandbox:
+
+```typescript
+const resp = await this._fsService.readFile('Open File', 'Please select a file');
+```
+
+Since we've abstracted away many of the security complexities we're left with a reusable, safe, and easy to use API call. I'd personally argue that a "secure" but difficult to use API is in fact just insecure, since the human programmers will be discouraged from using it.
 
 ### Origin Security
 
-We also want to avoid having the application execute within the `file://` origin, as we've discussed `file://` origins can be problematic and expose potential opportunities for attackers to bypass the CSP and load remote code. Futhermore, since `file://` URIs lack proper MIME types Electron will [refuse to load ES6 modules](https://github.com/electron/electron/issues/12011) from this origin. Therefore, we can both improve security and enable the use of modern ES6 modules at the same type by switching to a custom protocol. This is done in Electron using `RegisterBufferProtocolRequest`, ironically all of the provided [examples in the Electron documentation are vulnerable to path traversal](https://electronjs.org/docs/api/protocol), which would allow an attacker to read any file on the filesystem even if `nodeIntegration` is disabled.
+We also want to avoid having the application execute within the `file://` origin, as we've discussed `file://` origins can be problematic and expose potential opportunities for attackers to bypass the CSP and load remote code. Futhermore, since `file://` URIs lack proper MIME types Electron will [refuse to load ES6 modules](https://github.com/electron/electron/issues/12011) from this origin. Therefore, we can both improve security and enable the use of modern ES6 modules at the same type by switching to a custom protocol. This is done in Electron using `RegisterBufferProtocolRequest`, ironically all of the provided [examples in the Electron documentation are vulnerable to path traversal](https://electronjs.org/docs/api/protocol), which would allow an attacker to read any file on the filesystem even if `nodeIntegration` is disabled:
 
-#### [`app-protocol.ts`](app-protocol.ts)
+#### Vulnerable Protocol Handler
+```javascript
+const { app, protocol } = require('electron')
+const path = require('path')
+
+app.on('ready', () => {
+  protocol.registerFileProtocol('atom', (request, callback) => {
+    const url = request.url.substr(7)
+    callback({ path: path.normalize(`${__dirname}/${url}`) })
+  }, (error) => {
+    if (error) console.error('Failed to register protocol')
+  })
+})
+```
+
+Note that `path.normalize` operates on the result of concatenating `__dirname` and `url`, the latter contains the untrusted code's request path. So if `url` contains `../../../../../../../../../etc/passwd` and `__dirname` is `/opt/foo/bar` it will normalize to simply `/etc/passwd`.
+
+Here is our fixed version, note that `path.normalize()` is called prior to joining the paths:
+
+#### [`app-protocol.ts`](app-protocol.ts#L53)
 ```typescript
 export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next: ProtocolCallback) {
   const reqUrl = new URL(req.url);
-  let reqPath = path.normalize(reqUrl.pathname);
+  let reqPath = path.normalize(reqUrl.pathname);  // Normalize untrusted path
   if (reqPath === '/') {
     reqPath = '/index.html';
   }
@@ -522,6 +736,26 @@ export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next
   });
 }
 ```
+
+We then use a `<base>` tag to redirect any relative paths to our new protocol (and host):
+
+```html
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Reasonably Secure Electron</title>
+  <base href="app://rse">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self';">
+```
+
+Note that we still need to include a host (`rse` in the example above), even though our protocol handler does not utilize that part of the URL, this is done so that the `new URL()` parser correctly parses the `.pathname`. The base tag ensures any relative URIs such as `<script src="./bundle.js">` are re-written to `app://rse/bundle.js` so that the file is loaded over the `app://` protocol instead of HTTP. This means our application no longer runs in a `file://` or even an `https://` origin:
+
+![App Origin](blog/images/file-origin.gif)
+
+So given our CSP contains `default-src 'none'; script-src 'self'` and `'self'` now points to `app://` we no longer need to worry about UNC paths nor any of the other subtle complications that come from executing in a `file://` origin. Actually our sandboxed code cannot even easily send an HTTP request since `connect-src` only allows `'self'`! Similar to how we built a controlled abstraction on top of filesystem interactions we could now build a similar HTTP abstract and exert control over what types of HTTP requests and what domains the sandboxed code can even talk to --that said, don't rely on CSP to prevent data exfiltration, it's not a game you'll win.
+
+We do have to cede one unsafe content source: `style-src 'self' 'unsafe-inline'`, which is required for the Angular CSS engine to work properly. However, our primary concern is the injection of active content i.e. JavaScript, and while [injection of non-JavaScript content](http://lcamtuf.coredump.cx/postxss/) can still be dangerous, the benefits that come from using Angular far outweigh this small drawback.
 
 
 ## When in Doubt, Castle
