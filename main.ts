@@ -59,7 +59,7 @@ async function createMainWindow() {
     mainWindow.show();
   });
 
-  mainWindow.loadURL(`${AppProtocol.scheme}://app/index.html`);
+  mainWindow.loadURL(`${AppProtocol.scheme}://rse/index.html`);
   mainWindow.webContents.openDevTools();
 
   // Emitted when the window is closed.

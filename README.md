@@ -751,12 +751,11 @@ We then use a `<base>` tag to redirect any relative paths to our new protocol (a
 
 Note that we still need to include a host (`rse` in the example above), even though our protocol handler does not utilize that part of the URL, this is done so that the `new URL()` parser correctly parses the `.pathname`. The base tag ensures any relative URIs such as `<script src="./bundle.js">` are re-written to `app://rse/bundle.js` so that the file is loaded over the `app://` protocol instead of HTTP. This means our application no longer runs in a `file://` or even an `https://` origin:
 
-![App Origin](blog/images/file-origin.gif)
+![App Origin](blog/images/app-origin.gif)
 
 So given our CSP contains `default-src 'none'; script-src 'self'` and `'self'` now points to `app://` we no longer need to worry about UNC paths nor any of the other subtle complications that come from executing in a `file://` origin. Actually our sandboxed code cannot even easily send an HTTP request since `connect-src` only allows `'self'`! Similar to how we built a controlled abstraction on top of filesystem interactions we could now build a similar HTTP abstract and exert control over what types of HTTP requests and what domains the sandboxed code can even talk to --that said, don't rely on CSP to prevent data exfiltration, it's not a game you'll win.
 
 We do have to cede one unsafe content source: `style-src 'self' 'unsafe-inline'`, which is required for the Angular CSS engine to work properly. However, our primary concern is the injection of active content i.e. JavaScript, and while [injection of non-JavaScript content](http://lcamtuf.coredump.cx/postxss/) can still be dangerous, the benefits that come from using Angular far outweigh this small drawback.
-
 
 ## When in Doubt, Castle
 
