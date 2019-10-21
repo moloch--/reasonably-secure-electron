@@ -1,12 +1,12 @@
 {
   "name": "rse-gui",
-  "version": "0.0.7",
+  "version": "0.0.1",
   "description": "Cross-platform GUI for the Reasonably Secure Electron",
   "license": "GPLv3",
   "homepage": "https://bishopfox.com/",
   "author": {
     "name": "moloch",
-    "email": "jdemesy@bishopfox.com"
+    "email": "contact@bishopfox.com"
   },
   "repository": "https://github.com/BishopFox/",
   "main": "main.js",
