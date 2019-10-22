@@ -32,6 +32,7 @@ Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bis
       - [`ipc.ts`](#ipcts-3)
     - [File Write](#file-write)
     - [Navigation](#navigation)
+      - [`main.ts`](#maints-1)
     - [Origin Security](#origin-security)
       - [Vulnerable Protocol Handler](#vulnerable-protocol-handler)
       - [`app-protocol.ts`](#app-protocolts)
@@ -689,7 +690,7 @@ Since we've abstracted away many of the security complexities we're left with a 
 
 Next we'll disable navigation in our application windows, another method to load remote code or bypass the CSP would be to navigate the frame away from our application to an attacker controlled origin. [Disabling navigation while in sandbox mode](https://github.com/electron/electron/issues/8841) may be a little buggy depending on your version of Electron but it's still a good idea to implement. These callbacks go in your `main.ts` and affect the entire application:
 
-[`main.ts`](main.ts#L96)
+#### [`main.ts`](main.ts#L96)
 ```typescript
   app.on('web-contents-created', (_, contents) => {
     contents.on('will-navigate', (event, url) => {
