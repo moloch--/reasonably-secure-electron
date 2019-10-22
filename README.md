@@ -31,6 +31,7 @@ Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bis
       - [`ipc.ts`](#ipcts-2)
       - [`ipc.ts`](#ipcts-3)
     - [File Write](#file-write)
+    - [Navigation](#navigation)
     - [Origin Security](#origin-security)
       - [Vulnerable Protocol Handler](#vulnerable-protocol-handler)
       - [`app-protocol.ts`](#app-protocolts)
@@ -389,8 +390,8 @@ const mainWindow = new BrowserWindow({
 
 These are largely taken directly from the Electron documentation, but I've editorialized some of it based on my understanding. These are all Boolean flags:
 
-* `sandbox` - If set, this will sandbox the renderer associated with the window, making it compatible with the Chromium OS-level sandbox and disabling the Node.js engine. This is not the same as the `nodeIntegration` option and the APIs available to the preload script are more limited.
-* `webSecurity` - This flag disables the same origin policy (SOP), setting this to `false` will kill the kitten nearest to you.
+* `sandbox` - Whether to enable the sandbox renderer associated with the window, making it compatible with the Chromium OS-level sandbox and disabling the Node.js engine. This is not the same as the `nodeIntegration` option and the APIs available to the preload script are more limited.
+* `webSecurity` - Whether to enable the same origin policy (SOP), setting this to `false` will kill the kitten nearest to you.
 * `contextIsolation` - Whether to run Electron APIs and the specified preload script in a separate JavaScript context. This is disabled by default, but you should always set this to `true` to protect against prototype tampering.
 * `webviewTag` - Whether to enable the `<webview>` tag. These tags are exceedingly dangerous, you should always disable this feature.
 * `enableRemoteModule` - Whether to enable the [remote module](https://electronjs.org/docs/api/remote). This module is dangerous, and should be disabled whenever possible, we'll talk about a far safer approach to IPC in a bit.
@@ -685,6 +686,28 @@ const resp = await this._fsService.readFile('Open File', 'Please select a file')
 
 Since we've abstracted away many of the security complexities we're left with a reusable, safe, and easy to use API call. I'd personally argue that a "secure" but difficult to use API is in fact just insecure, since the human programmers will be discouraged from using it.
 
+### Navigation
+
+Next we'll disable navigation in our application windows, another method to load remote code or bypass the CSP would be to navigate the frame away from our application to an attacker controlled origin. [Disabling navigation while in sandbox mode](https://github.com/electron/electron/issues/8841) may be a little buggy depending on your version of Electron but it's still a good idea to implement. These callbacks go in your `main.ts` and affect the entire application:
+
+[`main.ts`](main.ts#L96)
+```typescript
+  app.on('web-contents-created', (_, contents) => {
+    contents.on('will-navigate', (event, url) => {
+      console.log(`[will-navigate] ${url}`);
+      console.log(event);
+      event.preventDefault();
+    });
+    contents.on('will-redirect', (event, url) => {
+      console.log(`[will-redirect] ${url}`);
+      console.log(event);
+      event.preventDefault();
+    });
+  });
+```
+
+Since we've implemented a single-page application using Angular, there's no legitimate scenario where a window should navigate away from the initial URL.
+
 ### Origin Security
 
 We also want to avoid having the application execute within the `file://` origin, as we've discussed `file://` origins can be problematic and expose potential opportunities for attackers to bypass the CSP and load remote code. Futhermore, since `file://` URIs lack proper MIME types Electron will [refuse to load ES6 modules](https://github.com/electron/electron/issues/12011) from this origin. Therefore, we can both improve security and enable the use of modern ES6 modules at the same type by switching to a custom protocol. This is done in Electron using `RegisterBufferProtocolRequest`, ironically all of the provided [examples in the Electron documentation are vulnerable to path traversal](https://electronjs.org/docs/api/protocol), which would allow an attacker to read any file on the filesystem even if `nodeIntegration` is disabled:
@@ -749,14 +772,14 @@ We then use a `<base>` tag to redirect any relative paths to our new protocol (a
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self';">
 ```
 
-Note that we still need to include a host (`rse` in the example above), even though our protocol handler does not utilize that part of the URL, this is done so that the `new URL()` parser correctly parses the `.pathname`. The base tag ensures any relative URIs such as `<script src="./bundle.js">` are re-written to `app://rse/bundle.js` so that the file is loaded over the `app://` protocol instead of HTTP. This means our application no longer runs in a `file://` or even an `https://` origin:
+Note that we still need to include a host (`rse` in the example above), even though our protocol handler does not utilize that part of the URL, this is done so that the `new URL()` parser correctly parses the `.pathname` attribute. The base tag ensures any relative URIs such as `<script src="./bundle.js">` are re-written to `app://rse/bundle.js` so that the file is loaded over the `app://` protocol instead of HTTP or `file://`. This means our application no longer runs in a `file://` origin, and the browser's SOP will give us some protections against interacting with other non-app specific origins:
 
 ![App Origin](blog/images/app-origin.gif)
 
-So given our CSP contains `default-src 'none'; script-src 'self'` and `'self'` now points to `app://` we no longer need to worry about UNC paths nor any of the other subtle complications that come from executing in a `file://` origin. Actually our sandboxed code cannot even easily send an HTTP request since `connect-src` only allows `'self'`! Similar to how we built a controlled abstraction on top of filesystem interactions we could now build a similar HTTP abstract and exert control over what types of HTTP requests and what domains the sandboxed code can even talk to --that said, don't rely on CSP to prevent data exfiltration, it's not a game you'll win.
+So given our CSP contains `default-src 'none'; script-src 'self'` and `'self'` now points to `app://` and we no longer need to worry about UNC paths nor any of the other subtle complications that come from executing in a `file://` origin. Actually our sandboxed code cannot even easily send an HTTP request since `connect-src` only allows `'self'`! Similar to how we built a controlled abstraction on top of filesystem interactions we could now build a similar HTTP abstract and exert control over what types of HTTP requests and what domains the sandboxed code can even talk to --that said, don't rely on CSP to prevent data exfiltration, it's not a game you'll win.
 
 We do have to cede one unsafe content source: `style-src 'self' 'unsafe-inline'`, which is required for the Angular CSS engine to work properly. However, our primary concern is the injection of active content i.e. JavaScript, and while [injection of non-JavaScript content](http://lcamtuf.coredump.cx/postxss/) can still be dangerous, the benefits that come from using Angular far outweigh this small drawback.
 
 ## When in Doubt, Castle
 
-After all this, we still need to validate parameters and exercise caution when performing key operations, so is it worth the effort?
+The ["defense in depth"](https://en.wikipedia.org/wiki/Defense_in_depth_(computing)) mantra does not just apply to networks and systems, but also to application design. By taking the area of the application with the largest attack surface (the DOM) and layering defences around it, we significantly reduce the chance of catastrophic failure. This principle can and should be applied to any software, not just Electron-based applications. Having spent my entire career finding flaws in software, I can assure you any sophisticated attacker will actively seek out single points of failure to exploit within an application or system.
