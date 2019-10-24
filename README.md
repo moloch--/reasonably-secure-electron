@@ -394,7 +394,7 @@ These are largely taken directly from the Electron documentation, but I've edito
 * `webSecurity` - Whether to enable the same origin policy (SOP), setting this to `false` will kill the kitten nearest to you.
 * `contextIsolation` - Whether to run Electron APIs and the specified preload script in a separate JavaScript context. This is disabled by default, but you should always set this to `true` to protect against prototype tampering.
 * `webviewTag` - Whether to enable the `<webview>` tag. These tags are exceedingly dangerous, you should always disable this feature.
-* `enableRemoteModule` - Whether to enable the [remote module](https://electronjs.org/docs/api/remote). This module is dangerous, and should be disabled whenever possible, we'll talk about a far safer approach to IPC in a bit.
+* `enableRemoteModule` - Whether to enable the [remote module](https://medium.com/@nornagon/electrons-remote-module-considered-harmful-70d69500f31). This module is dangerous, and should be disabled whenever possible, we'll talk about a far safer approach to IPC in a bit.
 * `allowRunningInsecureContent` - Allow an https page to run JavaScript, CSS, or plugins from http URLs. Default is `false`, but y'all go ahead and double tap this one.
 * `nodeIntegration` -  Gives the DOM access to the NodeJS APIs. Recklessly defaults to `true`, always set this to `false`.
 * `nodeIntegrationInWorker` - Whether node integration is enabled in web workers. Default is `false`.

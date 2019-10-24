@@ -54,7 +54,7 @@ function mime(filename: string): string {
   return type ? type : null;
 }
 
-export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next: ProtocolCallback) {
+export function requestHandler(req: Electron.HandlerRequest, next: ProtocolCallback) {
   const reqUrl = new URL(req.url);
   let reqPath = path.normalize(reqUrl.pathname);
   if (reqPath === '/') {
