@@ -2,10 +2,12 @@
 
 To build the example application included in this repo:
 
-```
+```bash
 npm install
 npm install -g electron-packager
 npm install -g @angular/cli
+npm audit fix
+
 npm run electron:local
 ```
 

