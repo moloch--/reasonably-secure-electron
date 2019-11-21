@@ -269,7 +269,7 @@ This means that in the context of Signal Desktop's CSP that `'self'` equates to 
 
 This payload loads an HTML file into an iframe from a UNC path, which does not violate the application's CSP since it's from the `file://` origin. Once loaded the child frame can execute native code in the context of the application since there are no more `script-src` restrictions.
 
-This exploit is an excellent example of the limitations of CSPs. A CSP _cannot_ prevent XSS; it can however complicate/limit the exploitation process, or make an otherwise exploitable bug unexploitable. CSP is a seatbelt; depending upon the severity of a crash it can and very well may save you but it's not perfect. And it's not the 80s anymore, so wear your damn seatbelt.
+This exploit is an excellent example of the limitations of CSPs. A CSP _cannot_ prevent XSS; it can however complicate/limit the exploitation process, or make an otherwise exploitable XSS bug unexploitable. CSP is a seatbelt; depending upon the severity of a crash it can and very well may save you but it's not perfect. And it's not the 80s anymore, so wear your damn seatbelt.
 
 ### What's in a Name?
 
