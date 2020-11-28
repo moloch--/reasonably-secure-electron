@@ -730,15 +730,15 @@ app.on('ready', () => {
 })
 ```
 
-Note that `path.normalize` operates on the result of concatenating `__dirname` and `url`, the latter contains the untrusted code's request path. So if `url` contains `../../../../../../../../../etc/passwd` and `__dirname` is `/opt/foo/bar` it will normalize to simply `/etc/passwd`.
+Note that `path.resolve` operates on the result of concatenating `__dirname` and `url`, the latter contains the untrusted code's request path. So if `url` contains `../../../../../../../../../etc/passwd` and `__dirname` is `/opt/foo/bar` it will normalize to simply `/etc/passwd`.
 
-Here is our fixed version, note that `path.normalize()` is called prior to joining the paths:
+Here is our fixed version, note that `path.resolve()` is called prior to joining the paths:
 
 #### [`app-protocol.ts`](app-protocol.ts#L53)
 ```typescript
 export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next: ProtocolCallback) {
   const reqUrl = new URL(req.url);
-  let reqPath = path.normalize(reqUrl.pathname);  // Normalize untrusted path
+  let reqPath = path.resolve(reqUrl.pathname);  // Normalize untrusted path
   if (reqPath === '/') {
     reqPath = '/index.html';
   }
