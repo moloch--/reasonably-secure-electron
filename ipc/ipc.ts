@@ -118,7 +118,7 @@ export class IPCHandlers {
             error: err ? err.toString() : null,
             data: data ? base64.encode(data) : null
           });
-          resolve(); // Failures get stored in `files` array
+          resolve(null); // Failures get stored in `files` array
         });
       });
     }));
@@ -147,7 +147,7 @@ export class IPCHandlers {
       if (save.canceled) {
         return resolve('');  // Must return to stop execution
       }
-      const fileOptions = {
+      const fileOptions: fs.WriteFileOptions = {
         mode: 0o644,
         encoding: 'binary',
       };
