@@ -54,12 +54,25 @@ function mime(filename: string): string {
   return type ? type : null;
 }
 
-export function requestHandler(req: Electron.HandlerRequest, next: ProtocolCallback) {
+export function requestHandler(req: Electron.ProtocolRequest, next: ProtocolCallback) {
   const reqUrl = new URL(req.url);
-  let reqPath = path.resolve(reqUrl.pathname);
+
+  // If the path doesn't start with "/" then path.normalize will not 
+  // resolve all '..' and could lead to path traversal attacks this is
+  // because NodeJS is a terrible language designed by terrible people.
+  if (!reqUrl.pathname.startsWith("/")) {
+    return next({
+      mimeType: null,
+      charset: null,
+      data: null,
+    });
+  }
+
+  let reqPath = path.normalize(reqUrl.pathname);
   if (reqPath === '/') {
     reqPath = '/index.html';
   }
+
   const reqFilename = path.basename(reqPath);
   fs.readFile(path.join(DIST_PATH, reqPath), (err, data) => {
     const mimeType = mime(reqFilename);

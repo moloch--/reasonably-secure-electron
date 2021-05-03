@@ -84,11 +84,7 @@ try {
 
   // Custom protocol handler
   app.on('ready', () => {
-    protocol.registerBufferProtocol(AppProtocol.scheme, AppProtocol.requestHandler, (err) => {
-      if (err) {
-        console.error(`[app-protocol] Error: ${err}`);
-      }
-    });
+    protocol.registerBufferProtocol(AppProtocol.scheme, AppProtocol.requestHandler);
     createMainWindow();
     startIPCHandlers(mainWindow);
   });
