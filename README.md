@@ -732,16 +732,29 @@ app.on('ready', () => {
 
 Note that `path.resolve` operates on the result of concatenating `__dirname` and `url`, the latter contains the untrusted code's request path. So if `url` contains `../../../../../../../../../etc/passwd` and `__dirname` is `/opt/foo/bar` it will normalize to simply `/etc/passwd`.
 
-Here is our fixed version, note that `path.resolve()` is called prior to joining the paths:
+Here is our fixed version, note that `path.normalize()` is called prior to joining the paths:
 
 #### [`app-protocol.ts`](app-protocol.ts#L53)
 ```typescript
 export function requestHandler(req: Electron.RegisterBufferProtocolRequest, next: ProtocolCallback) {
   const reqUrl = new URL(req.url);
-  let reqPath = path.resolve(reqUrl.pathname);  // Normalize untrusted path
+
+  // If the path doesn't start with "/" then path.normalize will not 
+  // resolve all '..' and could lead to path traversal attacks this is
+  // because NodeJS is a terrible language designed by terrible people.
+  if (!reqUrl.pathname.startsWith("/")) {
+    return next({
+      mimeType: null,
+      charset: null,
+      data: null,
+    });
+  }
+
+  let reqPath = path.normalize(reqUrl.pathname);
   if (reqPath === '/') {
     reqPath = '/index.html';
   }
+
   const reqFilename = path.basename(reqPath);
   fs.readFile(path.join(DIST_PATH, reqPath), (err, data) => {
     const mimeType = mime(reqFilename);
